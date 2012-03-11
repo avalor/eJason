@@ -7,12 +7,12 @@ siguiente(X,Y) :-
 !startcount.
 
 +!startcount : init_count(X) <- +actual_count(X);
-			!!count.
+			!count.
 			
 +!count: actual_count(X)& max_count(Y)& X < Y <-
 		?siguiente(X, NewCount);
 		-+actual_count(NewCount);
-		!!count.
+		!count.
 
 
 +!count: actual_count(X)& max_count(Y)& X >= Y <-
