@@ -5,9 +5,12 @@
 
 get_valuation()->
     receive
+	{execute,[],AnswerTo} ->
+	     %Finished
+	    {AnswerTo,[]};
 	{execute,Valuation,AnswerTo} when is_list(Valuation)->
+     %  io:format("[~p]Obtained list Valuation: ~p~n",[self(),Valuation]),  
 	    [First|_Rest] = Valuation,
-	  %io:format("[~p]Obtained list Valuation: ~p~n",[self(),Valuation]),
 
 % It is a list when the valuation is obtained from the execution of a plan
 	    {AnswerTo,First};
@@ -16,7 +19,7 @@ get_valuation()->
 	    {AnswerTo,Valuation};
 	{execute,Valuation,AnswerTo}->
 	   % io:format("Obtained invalid Valuation: ~p~n",[Valuation]),
-	    {AnswerTo,Valuation}   
+	    {AnswerTo,Valuation}  
     end.
 
 
