@@ -22,7 +22,7 @@
 %% BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
 %% WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
 %% OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
-%% ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+% ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 %% @author Álvaro Fernández Díaz
 %% @copyright 2012 Álvaro Fernández Díaz
@@ -51,69 +51,48 @@ get_valuation()->
 	   % io:format("Obtained invalid Valuation: ~p~n",[Valuation]),
 	    {AnswerTo,Valuation}  
     end.
-
-
+unify_vars(Atom,_Val,_VarNames) when is_atom(Atom)->
+    Atom;
 unify_vars({Atom,Params,Label},Val,VarNames)->
+    %io:format("Valuation:  ~p~n",[Val]),
     %io:format("Get Indexes for ~p, in ~p~n",[Params,VarNames]),
     Indexes = jasonParser:getIndexesForVars(tuple_to_list(Params),VarNames),
     %io:format("Indexes: ~p~n",[Indexes]),
-    [NewParams]= makeParams(Val,Indexes),
+    [NewParams]= makeParams([Val],Indexes),
     %io:format("NewParams: ~p~n",[NewParams]),
     {Atom,NewParams,Label}.    
 
-
-removeMatching(Engine,{Atom,_Terms,_Label}) ->
-    Matches = eresye:query_kb(Engine,{Atom,'_','_'}),
-    retractBeliefs(Engine,Matches);
-removeMatching(Engine,{Atom}) ->
-    Matches = eresye:query_kb(Engine,{Atom}),
-    retractBeliefs(Engine,Matches).
-
-    
-retractBeliefs(_Engine,[])->
-    ok;
-retractBeliefs(Engine,[Belief|Rest]) ->
-    eresye:retract(Engine,Belief),
-    retractBeliefs(Engine,Rest).
+add_belief(Belief) ->
+    %io:format("Belief: ~p~n",[Belief]),
+    {add_belief,Belief}.
 
 
-add_belief(Engine,Belief) ->
-    eresye:assert(Engine,Belief),
-    %EventBody = list_to_tuple([added_belief|tuple_to_list(Belief)]),
-    EventBody = {added_belief,Belief},
-    EventBody.
+remove_belief(Belief)->
+    {remove_belief,Belief}. 
 
-remove_belief(Engine,Belief)->
-    eresye:retract(Engine,Belief),
-   % EventBody = list_to_tuple([removed_belief|tuple_to_list(Belief)]),
-    EventBody = {removed_belief,Belief},
-    EventBody.
+remove_add_belief(Belief)->
+    {remove_add_belief,Belief}.
 
-remove_add_belief(Engine,Belief)->
-    removeMatching(Engine,Belief),
-    eresye:assert(Engine,Belief),
-   % EventBody = list_to_tuple([removed_belief|tuple_to_list(Belief)]),
-    EventBody = {added_belief,Belief},
-    EventBody.
-
-add_test_goal(Goal={_Atom,_Terms,_Label})->
-    %EventBody = list_to_tuple([added_test_goal|tuple_to_list(Goal)]),
-    EventBody = {added_test_goal,Goal},
-    EventBody;
-add_test_goal(Goal = {_} ) ->
-   % EventBody = list_to_tuple([added_test_goal|tuple_to_list(Goal)]),
-   EventBody = {added_test_goal,Goal},
-    EventBody.
+new_intention_goal(A)->
+    {new_intention_goal,A}.
 
 add_achievement_goal(Goal={_Atom,_Terms,_Label})->
     %EventBody = list_to_tuple([added_achievement_goal|tuple_to_list(Goal)]),
  %   io:format("NEW EVENT1: ~p~n For: ~p~n",[EventBody,Goal]),
-    EventBody={added_achievement_goal,Goal},
+    EventBody={add_achievement_goal,Goal},
     EventBody;
-add_achievement_goal(Goal = {_} ) ->
+add_achievement_goal(Goal) when is_atom(Goal) ->
    % EventBody = list_to_tuple([added_achievement_goal|tuple_to_list(Goal)]),
-    EventBody={added_achievement_goal,Goal},
+    EventBody={add_achievement_goal,Goal},
   %  io:format("NEW EVENT2: ~p~n",[EventBody]),
+    EventBody.
+
+
+add_test_goal(Goal={_Atom,_Terms,_Label})->
+    EventBody={add_test_goal,Goal},
+    EventBody;
+add_test_goal(Goal) when is_atom(Goal) ->
+    EventBody={add_test_goal,Goal},
     EventBody.
 
 
@@ -128,13 +107,13 @@ makeParams([Val|Vals],Positions)->
 makeParams(_Vals,[],Accum)->
     Accum;
 makeParams(Vals,[0|Rest],Accum) ->
-  %io:format("Vals y Pos: ~p y ~p~n",[Vals,Pos]),
+ % io:format("Vals y Pos: ~p y ~p~n",[Vals,Pos]),
     Nth = lists:duplicate(length(Vals),'_'),
     NewAccum = lists:zipwith(fun(X,Y) -> lists:append(X,[Y]) end,
 		  Accum,Nth),
     makeParams(Vals,Rest,NewAccum);
 makeParams(Vals,[Pos|Rest],Accum) when Pos > 0->
-    %io:format("Vals y Pos: ~p y ~p~n",[Vals,Pos]),
+ %   io:format("Vals y Pos: ~p y ~p~n",[Vals,Pos]),
     Nth = getNths(Pos,Vals),
     NewAccum = lists:zipwith(fun(X,Y) -> lists:append(X,[Y]) end,
 		  Accum,Nth),
@@ -169,6 +148,7 @@ makeTuples([List|Lists]) ->
 getNths(_Pos,[])->
     [];
 getNths(Pos,[H|T])->
+    %io:format("Pos: ~p~nH: ~p~n",[Pos,H]),
     [erlang:element(Pos,H)|getNths(Pos,T)].
 
 
@@ -220,33 +200,29 @@ replace(ValTuple,BindingTuple,[{ValPos,BindingPos}|Replacements])->
     replace(NewValTuple,BindingTuple,Replacements).
 
 
-
-%% Each time a set of params is received,
-%% it returns all matching possibilities
-rulesLoop(Rule)->
-    %io:format("~p waiting in RulesLoop~n",[self()]),
-    receive 
-	{getAllRes,Params,Peer}->
-	    try
-	%	io:format("Params RuleLoop: ~p~n",[Params]),
-
-		Res = apply(Rule,erlang:tuple_to_list(Params)),
-	%	io:format("RUlesloop-> Res: ~p for Params: ~p~n",[Res,Params]),
-		Peer ! {res,Res}
-	    catch
-		error:Reason ->
-		    %io:format("ERROR IN RULESLOOP~n"),
-		    Peer ! {res,[]},
-		    {'EXIT in Rule pred', {Reason, erlang:get_stacktrace()}}
-	    after
-		rulesLoop(Rule)
-	    end;
-	stop ->
-	    %io:format("Terminado ~p~n",[self()]),
-	    ok
-     end.
-
-
+%% %% Each time a set of params is received,
+%% %% it returns all matching possibilities
+%% rulesLoop(Rule)->
+%%     %io:format("~p waiting in RulesLoop~n",[self()]),
+%%     receive 
+%% 	{getAllRes,Params,Peer}->
+%% 	    try
+%% 	%io:format("Params RuleLoop: ~p~n",[Params]),
+%% 		Res = apply(Rule,erlang:tuple_to_list(Params)),
+%% 	%io:format("RUlesloop-> Res: ~p for Params: ~p~n",[Res,Params]),
+%% 		Peer ! {res,Res}
+%% 	    catch
+%% 		error:Reason ->
+%% 		    %io:format("ERROR IN RULESLOOP~n"),
+%% 		    Peer ! {res,[]},
+%% 		    {'EXIT in Rule pred', {Reason, erlang:get_stacktrace()}}
+%% 	    after
+%% 		rulesLoop(Rule)
+%% 	    end;
+%% 	stop ->
+%% 	    %io:format("Terminado ~p~n",[self()]),
+%% 	    ok
+%%      end.
 
 
 initialValuation([],_Atom,Params,NumberOfUndefined)->
@@ -278,57 +254,55 @@ getVarsFromResults([{_atom,Terms,_Label}|Rest],Acc) ->
 
 
 
-query_bb(Module,BBID,Query,Pars,FunBase)->
-%   io:format("BB:~p~nQUERY: ~p~n",[BBID,Query]),
-    MatchingBaseRes = getVarsFromResults(eresye:query_kb(BBID,Query),[]),
- %   io:format("RETRIEVED: ~p~n",[MatchingBaseRes]),
-    %% AllBaseRes = case MatchingBaseRes of
-    %% 		     [] ->	
-    %% 			 OtherBaseRes = eresye:query_kb(BBID,{Atom,'_','_'}),
-    %% 			 lists:append(OtherBaseRes,MatchingBaseRes);
-    %% 		     _ ->
-    %% 			 MatchingBaseRes
-    %% 		 end,
- %   io:format("Pars: ~p~n",[Pars]), 
+query_bb(Module,BB,Query,Pars,FunBase)->
+   %io:format("BB:~p~nQUERY: ~p~n",[BB,Query]),
+    MatchingBaseRes = getVarsFromResults(
+			beliefbase:find(Query,BB),[]),
+   % io:format("RETRIEVED: ~p~n",[MatchingBaseRes]),
+   % io:format("Pars: ~p~n",[Pars]), 
     RuleRes = case Pars of 
 		  []->
+%TODO: check if this case must be erased.
 		      MatchingBaseRes;
 		  [_Par|_Rest] ->
-		      query_rule(BBID,Module,Query,Pars,FunBase)		      
+		      query_rule(BB,Module,Query,Pars,FunBase)		      
     end,
-  % io:format("RuleRes: ~p~n",[RuleRes]), 
+   %io:format("RuleRes: ~p~n",[RuleRes]), 
 
     %%REALLY RETURN ALL? CHECK!
     FinalRes = utils:removeDuplicates(lists:append(MatchingBaseRes,RuleRes)),
-  % io:format("Returning:~p~n",[FinalRes]),
+   %io:format("Returning:~p~n",[FinalRes]),
     FinalRes.
 
 
-query_rule(BBID,Module,{Atom},[],FunBase)->
+query_rule(BB,Module,{Atom},[],FunBase)->
     F = {Atom,0},
+    %io:format("Looking for ~p in: ~n~p~n",[F,FunBase]),
+
     case lists:member(F, FunBase) of
 
 	false->
 	  %  io:format("No rule for: ~p~n",[Atom]),
 	    [];   
 	true ->
-	    P1 = spawn(Module,Atom,[BBID]),
+
+	    RuleFun = Module:Atom(BB),
+	   % P1 = spawn(Module,Atom,[BBID]),
 	   % io:format("Creado1: ~p~n",[P1]),
 
-	    Res = utils:getAll(P1,[],[]),
+	    Res = utils:getAll(RuleFun,[],[]),
 	   % io:format("Termo1: ~p~n",[P1]),
 
-	    P1 ! stop,
+	   % P1 ! stop,
 	   % io:format("Terminado1: ~p~n",[P1]),
 
 	    Res
     end;
-query_rule(BBID,Module,{Atom,_Terms,_Label},Pars= [Par|_RestPars],FunBase)->
+query_rule(BB,Module,{Atom,_Terms,_Label},Pars= [Par|_RestPars],FunBase)->
     
-    %% case eresye:query_kb(FunBase,{Atom,size(Par)}) of
     F = {Atom,size(Par)},
- %   io:format("Looking for ~p in: ~n~p~n",[F,FunBase]),
-  % io:format("Module: ~p~nAtom: ~p~n",[Module,Atom]),
+   %io:format("Looking for ~p in: ~n~p~n",[F,FunBase]),
+   %io:format("Module: ~p~nAtom: ~p~n",[Module,Atom]),
 
     case lists:member(F, FunBase) of
 
@@ -336,15 +310,17 @@ query_rule(BBID,Module,{Atom,_Terms,_Label},Pars= [Par|_RestPars],FunBase)->
 %	    io:format("No rule: ~p~n",[Atom]),
 	    [];   
 	true ->
-	    
-	    P1 = spawn(Module,Atom,[BBID]),
-	  %  io:format("Creado2: ~p~n",[P1]),
-	    Res = utils:getAll(P1,Pars,[]),
+   % io:format("Fun will be: ~p:~p(~p)~n",[Module,Atom,BB]),
 
-	  %  io:format("Termo2: ~p~n",[P1]),
-	  %  io:format("Res for ~p from query_rule: ~p~n",[Pars,Res]),
+	    RuleFun = Module:Atom(BB),
+	  %  P1 = spawn(Module,Atom,[BBID]),
+%	   io:format("RuleFun: ~p~n",[RuleFun]),
+	    Res = utils:getAll(RuleFun,Pars,[]),
 
-	    P1 ! stop,
+	 %  io:format("Termo2: ~p~n",[P1]),
+%	    io:format("Res for ~p from query_rule: ~p~n",[Pars,Res]),
+
+	  %  P1 ! stop,
 	  %  io:format("Terminado2: ~p~n",[P1]),
 
 	    Res
@@ -355,18 +331,11 @@ query_rule(BBID,Module,{Atom,_Terms,_Label},Pars= [Par|_RestPars],FunBase)->
 getAll(_,[],Accum)->
    % io:format("~p Accum: ~p~n",[self(),Accum]),
     Accum;
-getAll(Pid,[H|T],Accum)->
-   % io:format("GetAll for: ~p~n",[H]),
-    Pid ! {getAllRes,H,self()},
-  
-    receive
-	{res,Res} ->
-%	    io:format("RECEIVED ~p~n",[Res]),
-	   getAll(Pid,T,lists:append(Res,Accum))%% ;
-	%% Else ->
-	%%     io:format("Wrongly RECEIVED ~p~n",[Else])
+getAll(Fun,[H|T],Accum)->
+    Res = apply(Fun,tuple_to_list(H)),
+%% TODO: improve it, using function map.
+    getAll(Fun,T,lists:append(Res,Accum)).
 
-    end.
 
 valuation_and([],_Val2) ->
     [];
@@ -390,7 +359,7 @@ replaceNonVarsForVars([T|Terms],Vars,Count,AccTerms) ->
  	case T of
  	    {var,_,_VarName}->
  		{Count,T,Vars};
- 	    {_Else,Line,Name} ->
+ 	    {_Else,Line,Name} ->% TODO: add case for formula...
 		[Pos] = jasonParser:getIndexesForVars([Name],Vars),
 		SNewName ="EjasonVar"++integer_to_list(Count),
 		%io:format("Str= ~s~n",[SNewName]),
@@ -436,19 +405,12 @@ register_agent(OrderNum,Pid,Name)->
     case whereis(Name) of
 	undefined->
 	    register(Name,Pid),
-	    BB = erlang:list_to_atom(
-			lists:flatten(
-			  io_lib:format("~p_kb",[Name]))),
-	    {Name,BB};
+	    Name;
 	_ ->
 	    NewName = erlang:list_to_atom(
 			lists:flatten(
 			  io_lib:format("~p_~p",[Name,OrderNum]))),
-	    utils:register_agent(OrderNum+1,Pid,NewName),
-	    BB = erlang:list_to_atom(
-			lists:flatten(
-			  io_lib:format("~p_kb",[NewName]))),
-	    {NewName,BB}    
+	    utils:register_agent(OrderNum+1,Pid,NewName)	        
     end.
 	    
 
@@ -457,7 +419,12 @@ killAgent([])->
 killAgent(Agent) when is_atom(Agent)->
     killAgent([Agent]);
 killAgent([Agent|Agents]) ->
-    Agent ! {terminate,kill},
+    try
+    Agent ! {terminate,kill}
+    catch
+	error:badarg-> %% the agent was killed already
+	    ok
+    end,
     killAgent(Agents).
 
 
@@ -468,27 +435,15 @@ killAgent_test([])->
 killAgent_test(Agent) when is_atom(Agent)->
     killAgent_test([Agent]);
 killAgent_test([Agent|Agents]) ->
-    Agent ! {terminate,kill,self()},
+        try
+	    Agent ! {terminate,kill,self()}
+	catch
+	    error:badarg->
+		ok
+	end,
     killAgent_test(Agents).
-
-
-
-
-%% ejason_standard_test_goal_handler_trigger(
-%%   {added_test_goal,Query})->
-%%     {true, Query};
-%% ejason_standard_test_goal_handler_trigger(_)->
-%%     false.
 	
-%% ejason_standard_test_goal_handler_context(Query)->
-%%     Query.
 
-%% ejason_standard_test_goal_handler_body(Query)-> 
-%%     Res = resolve_test_goal(Query,?Name,?KB,?FunNames),
-%%     {AnswerTo1,_NewValues1} = utils:get_valuation(),
-%%     AnswerTo1 ! {Res,self()}.
-    
-    
 
 resolve_test_goal({Atom,Terms,_Label},
 		   Module,KB,FunNames)->

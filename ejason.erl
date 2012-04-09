@@ -47,8 +47,6 @@ run([Agent|List]) when is_tuple(Agent)->
 run([Agent|List]) when is_atom(Agent)->
     run(Agent,1),
     run(List).
-
-
 run(_Name,Num) when Num < 1 ->
     ok;
 run(Name,Num) ->
@@ -116,12 +114,12 @@ run_test(T,Num)->
 kill(Agents)->
     utils:killAgent(Agents).
 
-kill(Agent,1)->
+kill(Agent,0)->
     utils:killAgent(Agent);
 kill(Agent,Num)->
     Name = list_to_atom(
 	     lists:flatten(
-	       io_lib:format("~p_~p",[Agent,Num-1]))),
+	       io_lib:format("~p_~p",[Agent,Num]))),
     utils:killAgent(Name),
     kill(Agent,Num-1).
 

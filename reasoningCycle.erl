@@ -33,19 +33,7 @@
 -compile(export_all).
 
 -define(NULL, []).
-
 -include("macros.hrl").
-
-%% -record(agentRationale, {events=[], agentName="", 
-%% 			 intentions = [],
-%% 			 plans = [],
-%% 			 belief_base = undefined,
-%% 			 eventSelector = fun reasoningCycle:selectEvent/1, 
-%% 			 optionSelector = fun reasoningCycle:selectPlan/1, 
-%% 			 intentionSelector = fun reasoningCycle:selectIntention/1}).
-
-%% -record(event, {type = external, body = {}, relatedIntention=undefined}).
-%% -record(plan,{trigger=fun(_X)-> false end,context, body}). %A function each
 
 
 start(AgentName,InitialEvents, Plans,BB)->
@@ -54,11 +42,10 @@ start(AgentName,InitialEvents, Plans,BB)->
 		    belief_base = BB,
 		    events = InitialEvents}.
 
-reasoningCycle(#agentRationale{agentName = Name,
-			       events = [],
+reasoningCycle(#agentRationale{ events = [],
 			       intentions = []}= Agent)->
-   % io:format("[~p] Nothing to do. 5 sec. sleep.~n",[Name]),
-   % timer:sleep(10),
+   % io:format("[~p] Nothing to do. 5 sec. sleep.~n",[Agent#agentRationale.agentName]),
+    timer:sleep(200), %% Comment to skip process sleep time
     NewAgent = check_mailbox(Agent),
     reasoningCycle(NewAgent);
 reasoningCycle(#agentRationale{eventSelector = EvSel, 
@@ -83,24 +70,22 @@ reasoningCycle(#agentRationale{eventSelector = EvSel,
 	    {terminate,kill,Test}->
 		{terminate,kill,Test};
 	    _ ->
-	%	io:format("CHOSEN EVENT: ~p~n",[Event]),
+%		io:format("CHOSEN EVENT: ~p~n",[Event]),
 		RelevantPlans = findRelevantPlans(Event,Plans),
-	%	io:format("RELEVANT PLANS: ~p~n",[RelevantPlans]),
+%		io:format("RELEVANT PLANS: ~p~n",[RelevantPlans]),
 		ApplicablePlans = unifyContext(BB, RelevantPlans),
-	%	io:format("Applicable PLANS: ~p~n",[ApplicablePlans]),
+%		io:format("Applicable PLANS: ~p~n",[ApplicablePlans]),
 		OptionSelector(ApplicablePlans)
 	      end,
     
- %   io:format("INTENDED MEANS: ~p~n",[IntendedMeans]),
-    AllIntentions = processIntendedMeans(BB,Event,Intentions,IntendedMeans),
- %   io:format("All Intentions: ~p~n",[AllIntentions]),
+ %  io:format("INTENDED MEANS: ~p~n",[IntendedMeans]),
+    AllIntentions = processIntendedMeans(Event,Intentions,IntendedMeans),
+%   io:format("All Intentions: ~p~n",[AllIntentions]),
     
     case IntentionSelector(AllIntentions) of
 	{{terminate,kill},_}->
-	    eresye:stop(BB),
 	    io:format("Agent ~p killed.~n",[Agent#agentRationale.agentName]);
 	{{terminate,kill,TestPid},_} when is_pid(TestPid)->
-	    eresye:stop(BB),
 	    TestPid ! {killed, #agentRationale.agentName};
 	    %io:format("Agent ~p killed. Answer sent to ~p~n",
 	%	      [Agent#agentRationale.agentName,TestPid]);
@@ -111,9 +96,9 @@ reasoningCycle(#agentRationale{eventSelector = EvSel,
 	    reasoningCycle(NewAgent);
 	
 	{Intention,NotChosenIntentions} ->
-						%io:format("RESTART~n"),
+%	    io:format("Chosen Intention: ~p~n",[Intention]),
 	    
-	    Result = executeIntention(Intention),
+	    Result = executeIntention(BB,Intention),
 						%io:format("RESTART~n"),
 	    %io:format("Result from Execute intention is ~p~n",[Result]),
 	    NewAgent = 
@@ -121,8 +106,10 @@ reasoningCycle(#agentRationale{eventSelector = EvSel,
 			     {events = NotChosenEvents,
 			      intentions = NotChosenIntentions},
 				     Result),
-	  % io:format("NewAgent: ~p~n",[NewAgent]),
-	   reasoningCycle(check_mailbox(NewAgent))
+	    %io:format("NewAgent: ~p~n",[NewAgent]),
+	   reasoningCycle(check_mailbox(NewAgent));
+	Other->
+	    io:format("ERROR: Intention would be: ~p~n",[Other])
     end.
 
 
@@ -173,44 +160,99 @@ unifyContext(BBID,[{#plan{context=Context}=Plan,InitVal}|Plans], Acc) ->
 
 
 
-%% Intention = {Event,{Plan,Valuation},[Pid]}
+%% Intention = [{Event,Plan,Valuation,[{FormulaFunction,Bindings}] }
 %% Last event and plan are included to enhance observational power of
 %% the intention selection function.
 
-processIntendedMeans(_BBID,_Event,Intentions,[]) ->
+processIntendedMeans(_Event,Intentions,[]) ->
     Intentions;
-processIntendedMeans(_BBID,_Event,Intentions,{terminate,kill}) ->
+processIntendedMeans(_Event,Intentions,{terminate,kill}) ->
     I = [{terminate,kill}|lists:reverse(Intentions)], 
     %%Terminate only when there are no more intentions
     lists:reverse(I);
-processIntendedMeans(_BBID,_Event,Intentions,{terminate,kill,TestPid}) ->
+processIntendedMeans(_Event,Intentions,{terminate,kill,TestPid}) ->
     I = [{terminate,kill,TestPid}|lists:reverse(Intentions)], 
     %%Terminate only when there are no more intentions
     lists:reverse(I);
-processIntendedMeans(BBID,Event,Intentions,{#plan{body={M,F}}=Plan,Valuation}) ->
-    Pid = spawn(M,F,[BBID,Valuation]),
-%    io:format("New Pid for ~p:~p ~p~n",[M,F,Pid]),
+processIntendedMeans(Event,Intentions,
+		     {#plan{body=FormulaList}=Plan,Valuation}) ->
+    
 %    io:format("EventType: ~p~n",[Event#event.type]),
-    case Event#event.type of
-	external->
-	    [{Event,{Plan,Valuation},[Pid]}|Intentions];% IM create a new intention
+    NewIntention =  
+	case Event#event.type of
+	    external->
+		[#siPlan{ event = Event,
+			 plan = Plan,
+			 valuation = Valuation,
+			 formulas = FormulaList}];
+			 % IM create a new intention
 	internal->
-	    {_,_,Pids} = Event#event.relatedIntention, %%Old event, plan and valuation overwritten
-	    [{Event#event{relatedIntention = undefined},{Plan,Valuation},[Pid|Pids]}|Intentions]%IM put on top of an existing intention
-    end.
+		RIntention = Event#event.relatedIntention,
+		NewSIPlan = #siPlan{ event = Event#event{relatedIntention = undefined},
+				     plan = Plan,
+				     valuation = Valuation,
+				     formulas = FormulaList},
+		[NewSIPlan|RIntention]
+	end,
+    [NewIntention|Intentions].
 
 
-%% Executed the intention chosen
+
+%% Executes the intention chosen
 %% Returns a list of state updates (e.g. adding new events or updating intention list)
-executeIntention([])->
+executeIntention(_BBID,[])->
     io:format("No intention executable");
-executeIntention({Event,{Plan,Valuation},[Pid|Pids]})->
-    Pid ! {execute,Valuation,self()},
-    receive	
-	
-	{AnswersList, Pid}->
-	 %  io:format("Answerlist: ~p~n",[AnswersList]),
-	    processAnswers({Event,{Plan,Valuation},[Pid|Pids]}, AnswersList,[])
+executeIntention(BBID,Intention = [SIPlan|_RestSIP])->
+%    io:format("Executing Intention: ~p~n",[Intention]),
+   
+    Formula = case SIPlan#siPlan.formulas of
+		  [{NewFormula,_Bindings}|_RestFormulas]->
+		      NewFormula;
+		  [TestGoalBodyFormula] ->
+		      TestGoalBodyFormula
+	      end,
+    Valuation = SIPlan#siPlan.valuation,
+    AnswerList = Formula(BBID,Valuation),
+    processAnswers(Intention, AnswerList,[]).
+
+
+%% Updates the valuation of the SIP with the new bindings in the obtained valuations
+%% Removes the last executed formula from the body of the SIP and removes the SIP
+%% after the execution of the last formula.
+furtherInstantiatePlan([],_ObtainedValuation)->  
+    [{deleteIntention,[]}];
+furtherInstantiatePlan([SIPlan|RestSIP],ObtainedValuation)->
+%    io:format("Instantiate with valuation: ~p~n",[ObtainedValuation]),
+   {[NewValuation],RestFormulas} = 
+	case SIPlan#siPlan.formulas of
+	    [{_UsedFormula,Bindings}|NextFormulas] ->
+		OldValuation = SIPlan#siPlan.valuation, 
+		    case ObtainedValuation of
+			[]->
+			    {[OldValuation],NextFormulas};
+			_ ->
+			    {utils:updateValuation(
+			      [OldValuation], ObtainedValuation,Bindings),
+			     NextFormulas}
+		    end;
+	    
+	    [TestGoalFormula] when is_function(TestGoalFormula)->
+		{[ObtainedValuation],[]}
+	end,
+    
+
+ %   io:format("RestFormulas: ~p~n",[RestFormulas]),
+    case RestFormulas of 
+	[] -> %% Test Goal just executed
+    	    furtherInstantiatePlan(RestSIP,NewValuation);
+	[LastFormula] ->
+%	    io:format("LastFormula: ~p~n",[LastFormula]),
+	    [{finished,OtherValuation}] = LastFormula(NewValuation),
+	    furtherInstantiatePlan(RestSIP,OtherValuation);
+	RestFormulas when length(RestFormulas) >1 ->
+		    NewSIP = SIPlan#siPlan{valuation = NewValuation,
+					  formulas = RestFormulas},
+		    [{addIntention,[NewSIP|RestSIP]}]
     end.
 
 
@@ -218,50 +260,52 @@ processAnswers(_IntentionExecuted,[],Acc)->
     Res = lists:reverse(Acc),
 %    io:format("Changes after Answers: ~p~n",[Res]),
     Res;
-processAnswers({Event,{Plan,Valuation},[Pid|Pids]},[Answer|Answers],Acc)->
-%  io:format("Processing ANSWER: ~p~n",[Answer]),
-
+processAnswers(Intention,[Answer|Answers],Acc)->
+  %io:format("Processing ANSWER: ~p~n",[Answer]),
+    
+	 
     Result = case Answer of
-		 {finished, NewValuation}->
-		     case Pids of
-			 [] ->
-			     [{deleteIntention,[]}];
-			 _ ->
-			  %   io:format("Pids: ~p~n",[Pids]),
-			     [{addIntention,{Event,{Plan,NewValuation},Pids}}]
-		     end;
-		 {finished_test_goal, NewValuation}->
-		     [{addIntention,{Event,{Plan,NewValuation},Pids}}];
-	       
-		 {achievementGoal, NewEvent} ->
-		     [{addEvent, #event{type=internal, body = NewEvent,
-				       relatedIntention={Event,{Plan,Valuation},
-							 [Pid|Pids]}}}];
-		 {testGoal, NewEvent} ->
-		     [{addEvent, #event{type=internal, body = NewEvent,
-				       relatedIntention={Event,{Plan,Valuation},
-							 [Pid|Pids]}}}];
+		 {finished, NewValuation}->% SIP completely executed
+		     furtherInstantiatePlan(Intention,NewValuation);
+
+		 {add_achievement_goal, _NewEvent} ->
+		     [{addEvent, #event{type=internal, body = Answer,
+					relatedIntention=Intention}}];%++
+%			 furtherInstantiatePlan(Intention,[]);
+
+		 {add_test_goal, _NewEvent} ->
+		     [{addEvent, #event{type=internal, body = Answer,
+				       relatedIntention=Intention}}];%++
+%			 furtherInstantiatePlan(Intention,[]);
+
 		 {stutter_action} ->
-		     [{addIntention,{Event,{Plan,Valuation},
-				    [Pid|Pids]}}];
-		 {add_internal_event, NewEvent} ->
-		     [{addIntention,{Event,{Plan,Valuation},
-				    [Pid|Pids]}},
-		     {addEvent, #event{type=internal, body = NewEvent}}];
-		 {add_external_event, NewEvent} ->
-		     [{addIntention,{Event,{Plan,Valuation},
-				    [Pid|Pids]}},
-		      {addEvent, #event{type=external, body = NewEvent}}]
+		 	 furtherInstantiatePlan(Intention,[]);
+
+		 {add_belief, _Belief}->
+		     [Answer|furtherInstantiatePlan(Intention,[])];
+		 {remove_belief, _Belief}->
+		     [Answer|furtherInstantiatePlan(Intention,[])];
+		 {remove_add_belief, _Belief}->
+		     [Answer|furtherInstantiatePlan(Intention,[])];
+		 {new_intention_goal, NewEvent} ->
+		     [{addEvent, #event{type=external, 
+					body = 
+					{add_achievement_goal,NewEvent}}}]++
+		      furtherInstantiatePlan(Intention,[]);
+
+		 _ ->
+		     io:format("Unknown Answer: ~p~n",[Answer]),
+		     []
 	     end,
     
     case Result of
 	[]->
-	    processAnswers({Event,{Plan,Valuation},[Pid|Pids]},Answers,Acc);
+	    processAnswers(Intention,Answers,Acc);
 	_ ->
-	    processAnswers({Event,{Plan,Valuation},[Pid|Pids]},
+	    processAnswers(Intention,
 			   Answers,lists:append(Result,Acc))
     end.
-	
+
 
 
 
@@ -269,8 +313,10 @@ applyChanges(Agent,[]) ->
 %   io:format("Final Agent: ~p~n",[Agent]),
    Agent;
 applyChanges(#agentRationale{events = Events,
-				  intentions = Intentions}=Agent,[Change|Changes])->
- %io:format("Change: ~p~n",[Change]),
+			     intentions = Intentions,
+			    belief_base = BB}=Agent,
+	     [Change|Changes])->
+% io:format("Change: ~p~nWith BB:~p~n",[Change,BB]),
     NewAgent = case Change of
 		   {deleteIntention,_}->
 		       Agent;
@@ -278,6 +324,42 @@ applyChanges(#agentRationale{events = Events,
 		       Agent#agentRationale{intentions = [NewIntention|Intentions]};
 		   {addEvent, NewEvent} ->
 		       Agent#agentRationale{events = [NewEvent|Events]};
+		   {add_belief, Belief} ->
+		  %     io:format("Adding Belief: ~p~n",[Belief]),
+		       case beliefbase:assert(Belief,BB) of
+			   {ok,no_change}->
+			       Agent; %% No change
+			   {ok,NewBB}->
+			       NewEvent =  #event{type=internal, 
+						  body = Change},
+			       Agent#agentRationale{belief_base = NewBB,
+						   events = 
+						   [NewEvent|Events]}
+		       end;
+		   {remove_belief, Belief} ->
+		       case beliefbase:deny(Belief,BB) of
+			   {ok, no_change}->
+			       Agent;
+			   {ok, NewBB} ->
+			       NewEvent =  #event{type=internal, 
+						  body = Change},
+				   Agent#agentRationale{belief_base = NewBB,
+							events = 
+							[NewEvent|Events]}
+		       end;
+		  {remove_add_belief, Belief} ->
+		       BB2 = beliefbase:deny_matching(Belief,BB),
+		       case  beliefbase:assert(Belief,BB2) of
+			   {ok,no_change} ->
+			       Agent#agentRationale{belief_base = BB2};
+			   {ok,NewBB} ->
+			       NewEvent =  #event{type=internal, 
+						  body = {add_belief,Belief}},
+			       Agent#agentRationale{belief_base = NewBB,
+						    events = 
+						    [NewEvent|Events]}
+		       end;
+			   
 		   {none} ->
 		       Agent
 	       end,
@@ -292,7 +374,6 @@ wrap(Element,List)->
     lists:map(F,List).
 		   
 			
-
 
 selectEvent([])->
     {?NULL,?NULL};
@@ -359,3 +440,11 @@ processMessages(BB,[Message|List],Acc)->
 		{terminate,kill,TestPid}
 	end,
     processMessages(BB,List,[NewEvent|Acc]).
+	
+
+
+
+
+
+
+

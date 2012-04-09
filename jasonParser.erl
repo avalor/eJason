@@ -27,7 +27,7 @@
 %% @author Álvaro Fernández Díaz
 %% @copyright 2012 Álvaro Fernández Díaz
 %% @doc Provides all the functions necessary to transform eJason intermediate
-%%      to Erlang.
+%%      code to Erlang.
 
 
 -module(jasonParser).
@@ -38,13 +38,14 @@
 generateInitialBeliefs(Beliefs)->
  %   io:format("CALLED WITH PARAMS ~n~p~n",[Beliefs]),
     Header = "%% Function to includeInitial beliefs.\n\n"++
-	"addInitialBeliefs(Agent = #agentRationale{belief_base = BB})->\n",
+	"addInitialBeliefs(Agent = #agentRationale{})->\n",
     {BeliefStrings,RuleStrings,FunNames} = sourceForInitialBeliefs(
 					     Beliefs,{"","",[]}),
     %_SFuns = sourceForTermList(FunNames,","),
-    io_lib:format("-define(FunNames,~p).~n~n~s~n\teresye:start(BB),~n"++
-		  "\treasoningCycle:applyChanges(Agent,[~s\t{none}]).~n~n~s",
-		  [FunNames,Header, BeliefStrings,RuleStrings]).
+    io_lib:format(
+      "-define(FunNames,~p).~n~n~s~n"++
+      "\treasoningCycle:applyChanges(Agent,[\n~s\n\t\t{none}]).\n~n~s",
+      [FunNames,Header, BeliefStrings,RuleStrings]).
         
 
 sourceForInitialBeliefs([],Acc)->
@@ -52,11 +53,10 @@ sourceForInitialBeliefs([],Acc)->
 sourceForInitialBeliefs([{atom,_line,Atom}|Beliefs],{AccB,AccR,
 							      FunNames}) -> 
 
-    SBelief = io_lib:format("\tutils:add_belief(BB,{~p})",
+    SBelief = io_lib:format("\t\t{add_belief,{~p}},\n",
 		      [Atom]),
     NewAccB = 
-	io_lib:format("~s\t{addEvent,#event{type=external"++
-		      ",~n\t\tbody=~s}},~n",
+	io_lib:format("~s~s",
 		      [AccB,SBelief]),
  
     
@@ -80,12 +80,11 @@ sourceForInitialBeliefs([{formula,Atom,Terms,Label}|Beliefs],{AccB,AccR,
 		io_lib:format("~s",[sourceForTermList(Label,",")])
 	end,
 
-    SBelief = io_lib:format("\tutils:add_belief(BB,{~p,{~s},[~s]})",
+    SBelief = io_lib:format("\t\t{add_belief,{~p,{~s},[~s]}},\n",
 		      [Atom,SourceOfTerms, SourceOfLabel])
 ,
     NewAccB = 
-	io_lib:format("~s\t{addEvent,#event{type=external"++
-		      ",~n\t\tbody=~s}},~n",
+	io_lib:format("~s~s",
 		      [AccB,SBelief]),
  
     sourceForInitialBeliefs(Beliefs,{NewAccB,AccR,FunNames});
@@ -163,7 +162,7 @@ sourceForInitialBeliefs([{{formula,Atom,Terms,_Label},
 
     Params = sourceForTermList(Terms,","),
     SLoop = io_lib:format("~p(BBID)->~n\tRule= fun(~s)-> ~p(BBID,~s) "++
-			  "end,~n\tutils:rulesLoop(Rule).~n~n",
+			  "end,~n\tRule.~n~n",
 			  [Atom,Params,Atom,Params] ),
     SHead = io_lib:format("~p(BBID,~s) -> ~n\tInitVal = list_to_tuple(lists:duplicate(~p,'_')),~n"++
 			  "\tVal0= utils:updateValuation([InitVal],~n"++
@@ -541,14 +540,14 @@ getParamNamesWithType([{log_or,Cond1,Cond2}|Conditions],Vars,Mode) ->
     VarsCond1 = getParamNamesWithType([Cond1],lists:reverse(Vars),Mode),
     VarsTotal = getParamNamesWithType([Cond2],lists:reverse(VarsCond1),Mode),
     getParamNamesWithType(Conditions,lists:reverse(VarsTotal),Mode);
-getParamNamesWithType([{added_achievement_goal,Formula}|Conditions],Vars,Mode)->
+getParamNamesWithType([{add_achievement_goal,Formula}|Conditions],Vars,Mode)->
     getParamNamesWithType([Formula|Conditions],Vars,Mode);
 getParamNamesWithType([{action,_ActionType,Term}|Conditions],Vars,Mode) ->
     getParamNamesWithType([Term|Conditions],Vars,Mode);
 getParamNamesWithType([{action,internal_action,_Packages,F}|Conditions],
 		      Vars,Mode) ->
     getParamNamesWithType([F|Conditions],Vars,Mode);
-getParamNamesWithType([{added_belief,_Atom}|Conditions],Vars,Mode) ->
+getParamNamesWithType([{add_belief,_Atom}|Conditions],Vars,Mode) ->
     getParamNamesWithType(Conditions,Vars,Mode);
 getParamNamesWithType([true|Conditions],Vars,Mode) ->
     getParamNamesWithType(Conditions,Vars,Mode);
@@ -632,6 +631,7 @@ sourceForTermListVars(Terms,Separator)->
 sourceForTermVars({formula,Atom,Terms, Label})->
     case {Terms,Label} of
 	{[],[]}->
+
 	    io_lib:format("~p",[Atom]);
 	_->
 	    SourceOfTerms = 
@@ -650,7 +650,7 @@ sourceForTermVars({formula,Atom,Terms, Label})->
 		end,
 	    io_lib:format("{~p,~s,~s}",[Atom,SourceOfTerms,SourceOfLabel])
 			
-    end;
+   end;
 sourceForTermVars({list,[],[]})->
     "[]";
 sourceForTermVars({list,Elements,Tail}) ->
@@ -762,8 +762,9 @@ generateInitialGoals(Goals)->
     SGoals = sourceForGoals(Goals),
     case Goals  of
 	[] ->
-	    io_lib:format("~saddInitialGoals(Agent = #agentRationale{})->~n\tok.~n"
-			  ,[Header]);
+	    io_lib:format(
+	      "~saddInitialGoals(Agent = #agentRationale{})->~n\tok.~n",
+	      [Header]);
 	_ ->
 	    io_lib:format("~saddInitialGoals(Agent = #agentRationale{})->~n\t"
 			  ++"InitGoalList=[~s],~n\treasoningCycle:"
@@ -777,7 +778,7 @@ sourceForGoals(Goals)->
 
 sourceForGoals([],Acc)->
     Acc;
-sourceForGoals([{goal_added,Goal}],Acc) ->
+sourceForGoals([{add_achievement_goal,Goal}],Acc) ->
     SGoal = sourceForTermNoVars(Goal),
     %io:format("~p~n",[Goal]),
     NewAcc = 
@@ -785,14 +786,14 @@ sourceForGoals([{goal_added,Goal}],Acc) ->
 	    {atom, _,_}->
 		io_lib:format(
 		  "~s\t{addEvent,#event{type=external"++
-		  ",~n\t\tbody={added_achievement_goal,{~s}}}}", [Acc,SGoal]);
+		  ",~n\t\tbody={add_achievement_goal,~s}}}", [Acc,SGoal]);
 	    {formula,_,_,_} ->
 		io_lib:format(
 		  "~s\t{addEvent,#event{type=external"++
-		  ",~n\t\tbody={added_achievement_goal,~s}}}", [Acc,SGoal])
+		  ",~n\t\tbody={add_achievement_goal,~s}}}", [Acc,SGoal])
 	end,
    NewAcc;
-sourceForGoals([{goal_added,Goal}|Goals],Acc) ->
+sourceForGoals([{add_achievement_goal,Goal}|Goals],Acc) ->
     SGoal = sourceForTermNoVars(Goal),
     %io:format("~s~n",[SGoal]),
     NewAcc = 
@@ -800,11 +801,11 @@ sourceForGoals([{goal_added,Goal}|Goals],Acc) ->
 	    {atom,_,_}->
 		io_lib:format(
 		  "~s\t{addEvent,#event{type=external"++
-		  ",~n\t\tbody={added_achievement_goal,{~s}}}}", [Acc,SGoal]);
+		  ",~n\t\tbody={add_achievement_goal,{~s}}}}", [Acc,SGoal]);
 	    {formula,_,_,_} ->
 		io_lib:format(
 		  "~s\t{addEvent,#event{type=external"++
-		  ",~n\t\tbody={added_achievement_goal,~s}}}", [Acc,SGoal])
+		  ",~n\t\tbody={add_achievement_goal,~s}}}", [Acc,SGoal])
 	end,
     NewAcc,
     sourceForGoals(Goals,NewAcc).
@@ -817,15 +818,17 @@ sourceForGoals([{goal_added,Goal}|Goals],Acc) ->
 generatePlans(Plans)->
     generatePlans(Plans,"",1,[]).
 
-generatePlans([],Acc,_,PlanNameList)->
+generatePlans([],SAllPlans,_,PlanNameBindingsList)->
     %io:format("PlanNameList: ~p~n",[PlanNameList]),
-    SPlanBase = generatePlanRecords(PlanNameList),
-    io_lib:format("~s~s~n~n",[SPlanBase,Acc]);
-generatePlans([Plan|Plans],Acc,PlanNum,PlanNameList) ->
+    SPlanBase = generatePlanRecords(PlanNameBindingsList),
+    io_lib:format("~s~s~n~n",[SPlanBase,SAllPlans]);
+generatePlans([Plan|Plans],Acc,PlanNum,PlanNameBindingsList) ->
     %io:format("PLAN: ~p~n",[PlanNameList]),
-    {PlanName,SPlan} = sourceForPlan(Plan,PlanNum),
+    {PlanName,SPlan,Bindings} = sourceForPlan(Plan,PlanNum),
     NewAcc = io_lib:format("~s~s",[Acc,SPlan]),
-    generatePlans(Plans,NewAcc,PlanNum+1,[PlanName|PlanNameList]).
+    generatePlans(Plans,NewAcc,PlanNum+1,[{PlanName,Bindings}|PlanNameBindingsList]).
+
+
 
 getNonVarParamNames(Params)->
     getNonVarParamNames(Params,[]).
@@ -846,7 +849,7 @@ getNonVarParamNames([Param|Params],Acc) ->
 
 sourceForTestHandlingPlan() ->
     STrigger ="ejason_standard_test_goal_handler_trigger(\n"++
-	"\t{added_test_goal,Query})->\n"++
+	"\t{add_test_goal,Query})->\n"++
 	"\t{true, [Query]};\n"++
 	"ejason_standard_test_goal_handler_trigger(_)->\n"++
 	"\tfalse.\n",
@@ -856,8 +859,7 @@ sourceForTestHandlingPlan() ->
     
     SBody = "ejason_standard_test_goal_handler_body(BBID,[Query])->\n"++ 
 	"\tRes = utils:resolve_test_goal(Query,?Name,BBID,?FunNames),\n"++
-	"\t{AnswerTo1,_NewValues1} = utils:get_valuation(),\n"
-	"\tAnswerTo1 ! {[{finished_test_goal,Res}],self()}.\n",
+	"\t[{finished,Res}].\n",
     io_lib:format("~s~n~s~n~s~n",[STrigger,SContext,SBody]).
     
 
@@ -866,7 +868,7 @@ sourceForTestHandlingPlan() ->
 
 
 sourceForPlan([],_)->
-    {"",""};
+    {"","", []};
 sourceForPlan({{trigger,Trigger},{context,Context},{body,Body}},PlanNum)->
     %io:format("Trigger: ~p~n",[Trigger]),
     PTrigger = getParamNamesWithType([Trigger],[]),
@@ -886,11 +888,15 @@ sourceForPlan({{trigger,Trigger},{context,Context},{body,Body}},PlanNum)->
 
     {PlanName,STrigger} = sourceForPlanTrigger(Trigger,PlanNum,PTrigger,Vars,NonVarParams),
     SContext = sourceForPlanContext(Context,PlanName,length(PTrigger),Vars),
-    SBody = sourceForPlanBody(Body,PlanName,Vars),
-    {PlanName,io_lib:format("~s~s~s~n",[STrigger,SContext,SBody])}.
+    {SBody,Bindings} = sourceForPlanBody(Body,PlanName,Vars,PTrigger),
+    {PlanName,io_lib:format("~s~s~s~n",[STrigger,SContext,SBody]),Bindings}.
+
 
 sourceForPlanTrigger({PlanType,{formula,Atom,Terms,Label}},
 		     PlanNum,ParamsWithType,Vars,NonVarParams)->
+%% TODO: many unreadable checks. Probably should be done in the calling
+%% function or in an auxiliary function
+
     %io:format("Params:~p~nVars:~p~n",[ParamsWithType,Vars]),
     ParamsNoType = removeParamTypes(ParamsWithType),
  
@@ -956,10 +962,10 @@ sourceForPlanTrigger({PlanType,{atom,_Line,Atom}},PlanNum,_Params,Vars,NonVarPar
     SParams = sourceForTermListNoVars(NonVarParams, ","),
     
     
-   
+    
     {Name,
      io_lib:format(
-       "~s_trigger({~p,{~p}})->~n\t"++
+       "~s_trigger({~p,~p})->~n\t"++
        "InitValuation = list_to_tuple(lists:duplicate(~p,'_')),~n"++
        "\tResVal = utils:updateValuation([InitValuation],[{~s}],~p),~n"++
        "\tcase ResVal of~n\t\t[]->false;~n\t\t_->\t{true,ResVal}\n\tend;~n"
@@ -995,394 +1001,138 @@ sourceForPlanContext(Context,PlanName,NumParams,Vars) ->
     
 
 
-sourceForPlanBody([],_PlanName,_Vars)->
-    ok;%%ERROR!
-sourceForPlanBody(Actions,PlanName,Vars) ->
-    %% [Last|FirstActions] = lists:reverse(Actions),
-    %% NewActions = lists:reverse(FirsActions),
-    %% NumActions = length(NewActions),
-    %% FirstActionsSource = lists:zip(NewActions,lists:seq(1,NumActions)),
-    
-    %% Header = io_lib:format("~s_body()->~n",[PlanName]),
-    %% SFirstActions = lists:map(fun jasonParser:sourceForTerm/1, 
-    %% 			      FirstActionsSource),
-    %% SLastAction
-   %% CORRECT, BUT NOT ELEGANT; NEEDS TO BE CHANGED
+sourceForPlanBody([],_PlanName,_Vars,_PTrigger)->
+    ok;%%ERRO!
+sourceForPlanBody(Actions,PlanName,Vars,PTrigger) ->
+
+    %io:format("Params:~p~nVars:~p~n",[ParamsWithType,Vars]),
+    ParamsNoType = removeParamTypes(PTrigger),
+    ParamIndexes = getIndexesForVars(ParamsNoType,Vars,[]),
+   
+     % SIndexes = sourceForTermList(Indexes,","),
+
+
+
+%% CORRECT, BUT NOT ELEGANT; MAYBE NEEDS TO BE CHANGED
     NumActions = length(Actions),
+%    io:format("Plan Body of ~s has ~p formulas.~n",[PlanName,NumActions]),
+
     VarCopies = lists:duplicate(NumActions,Vars),
-    ActionsSource = lists:zip3(Actions,lists:seq(1,NumActions),VarCopies),
+    ActionsNumerated = lists:zip3(Actions,lists:seq(1,NumActions),VarCopies),
+    SourceActions = [{X,Y,Z,W}|| {X,Y,Z}<-ActionsNumerated, W <- [PlanName]],
+
+%    io:format("SourceActions is ~p~n",[SourceActions]),
+
+
+    SLastFormula= io_lib:format(
+		    "~n~s_body_last_formula(Valuation)-> ~n"++
+		    "\t[{finished,utils:makeParams([Valuation],~p)}].",
+		    [PlanName, ParamIndexes]),
+  
+    ActionTuples = lists:map(fun jasonParser:sourceForAction/1, 
+			      SourceActions),
+
+%    io:format("ActionTuples is ~p~n",[ActionTuples]),
+
+
+    {SActions,Bindings} = actionTupleSplit(ActionTuples),
+
+    SBody = string:join([SLastFormula|SActions],"\n"),
+
+    {SBody,Bindings}.
     
-    Header = io_lib:format("~s_body(BBID,Val)->~n\tVarNames = ~p,~n"++
-			   "\tBindings0 = [],~n\tVal0 = [Val],~n~n",
-			   [PlanName,Vars]),
-    SActions = lists:map(fun jasonParser:sourceForAction/1, 
-			      ActionsSource),
 
-    SBody = string:join(SActions,"\n"),
-    
-    io_lib:format(
-      "~s~s~n"++%\tAnswerTo~p ! {[Res~p],self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tRes~p= [{finished,Val~p}],~n"++
-      "\tAnswerTo~p ! {Res~p,self()}.~n",
-      [Header,SBody]++
-      [NumActions+1,NumActions+1]++
-      [NumActions+1,NumActions,NumActions+1,NumActions]++
-      [NumActions+1,NumActions+1]++
-      [NumActions+1,NumActions+1]).
+actionTupleSplit(List)->
+    actionTupleSplit(List,[],[]).
 
-
+actionTupleSplit([],Acc1,Acc2)->
+    {lists:reverse(Acc1),lists:reverse(Acc2)};
+actionTupleSplit([{ActionSource,Binding}|Rest],Acc1,Acc2) ->
+    actionTupleSplit(Rest,[ActionSource|Acc1],[Binding|Acc2]).
 
 
 %%%%%%%%%%%%SOURCE FOR ACTION%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% Generates the pairs {Source, Bindings} for each formula in a plan body
+sourceForAction({{action,ActionType,Packages,F={formula,_Atom,_Terms,_Label}},
+		 NumAct,Vars,FunName})-> 
+    %% Is an internal action, along with package name
+    sourceForAction({{action,{ActionType,Packages},
+		      F={formula,_Atom,_Terms,_Label}},	
+		     NumAct,Vars,FunName});
+sourceForAction({{action,ActionType,{atom,_Line,Atom}},NumAct,Vars,FunName})->
+    sourceForAction({{action,ActionType,
+		      {formula,Atom,[],[]}},NumAct,Vars,FunName});
+sourceForAction({{action,ActionType,F={formula,_Atom,_Terms,_Label}},
+		 NumAct,Vars,FunName})->
 
+    SFormula =  %case ActionType of
+		 %   remove_add_belief ->
+		%	sourceForTermNoVars(F);
+		%    _ ->
+			sourceForTermVars(F),
+		%end,
 
-
-
-sourceForAction({{action,add_belief,F={formula,_Atom,_Terms,_Label}},NumAct,Vars})->
-    SFormula = sourceForTermVars(F),
+%    io:format("SFormula: ~p~n",[SFormula]),
     ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBelief~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:add_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						% [NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,add_belief,A={atom,_Line,_Atom}},NumAct,_Vars})->
-    SAtom = sourceForTerm(A),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tBelief~p = {~s},~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tNewEvent~p = utils:add_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-		  %[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,test_goal,F={formula,_Atom,_Terms,_Label}},
-		 NumAct,Vars}) ->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
+%    io:format("ParamsF: ~p~n",[ParamsF]),
     
-
-
-%% %%COPY
+    Indexes = getIndexesForVars(ParamsF,Vars,[]),
+ %   io:format("Indexes: ~p~n",[Indexes]),
     
-%%     TermParams = getParamList(Terms,[]),
-%%     LabelParams = getParamList(Label,[]),
-%%     FormulaVars = lists:append(TermParams,LabelParams),
-%%     NumIndexes = getIndexesForVars(FormulaVars,
-%% 				   Vars,[]),
-%% %    io:format("TermVars: ~p~nFormulaVars: ~p~nVars: ~p~nNumIndexes: ~p~n",
-%% %	      [TermParams,FormulaVars,Vars,NumIndexes]),
-%%     MakeParamsSource = io_lib:format("\tPar~p =utils:makeParams(Val~p,[~s]),~n",
-%% 				     [NewValIndex,SourceValIndex,
-%% 				      sourceForTermList(NumIndexes,",")]),
-%%     QuerySource = io_lib:format("\tRes~p = resolve_test_goal(~s,"++
-%% 				 "),~n",
-%% 				 [NumAct,SFormula,NewValIndex,,NewValIndex]),
-%%     NextValIndex = NewValIndex +1,
-%%     ReplacementSource = replacementFromIndexes(NumIndexes,"",1),
-%%     NewValSource = io_lib:format(
-%% 		     "\tVal~p = utils:updateValuation(Val~p,Res~p,[~s]),~n~n",
-%% 		     [NewValIndex,SourceValIndex,NewValIndex,
-%% 		      ReplacementSource]),
-%%     NewAcc = io_lib:format("~s~s~s~s",
-%% 			   [Acc,MakeParamsSource,%SpawnSource,ResSource,
-%% 						%StopSource, 
-%% 			    QueryBBSource,NewValSource]),
-%%     sourceForBody(Conditions,Vars,ParamsNum,NewValIndex,NextValIndex,NewAcc);
-
-%% %%COPY
-
-
-
-
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tTestGoal~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:add_test_goal(TestGoal~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{testGoal,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,test_goal,A={atom,_line,_Atom}},NumAct,_Vars}) ->
-    SAtom = sourceForTerm(A),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tTestGoal~p = {~s},~n"++
-      "\tNewEvent~p = utils:add_test_goal(TestGoal~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{testGoal,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,remove_belief,F={formula,_Atom,_Terms,_Label}},NumAct,Vars}) ->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
     Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBelief~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:remove_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
+  %  io:format("Bindings: ~p~n",[Bindings]),
 
-sourceForAction({{action,remove_belief,A={atom,_Line,_Atom}},NumAct,_Vars})->
-    SAtom = sourceForTermVars(A),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBelief~p = {~s},~n"++
-      "\tNewEvent~p = utils:remove_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,achievement_goal,A={atom,_Line,_Atom}},NumAct,_Vars})->
-    SAtom = sourceForTermVars(A),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tGoal~p = {~s},~n"++
-      "\tNewEvent~p = utils:add_achievement_goal(Goal~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{achievementGoal,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-		  %[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,achievement_goal,F={formula,_Atom,_Terms,_Label}}
-		 ,NumAct,Vars}) ->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
-    io_lib:format( %"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tAchGoal~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:add_achievement_goal(AchGoal~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{achievementGoal,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,new_intention_goal,A={atom,_Line,_Atom}},NumAct,_Vars})->
-    SAtom = sourceForTermNoVars(A),
 
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tGoal~p = {~s},~n"++
-      "\tNewEvent~p = utils:add_achievement_goal(Goal~p)~n,"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_external_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,new_intention_goal,F={formula,_Atom,_Terms,_Label}},
-		 NumAct,Vars}) ->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
+    SEvent = 
+	case ActionType of
+	    true -> 
+		"";
+	    {internal_action, Packages }->
+		io_lib:format(
+		  "\tok = utils:execute(?Name,?Internal,~s,Element),\n",
+		  [Packages]);
+	    {external_action, Packages }->
+		io_lib:format(
+		  "\tok = utils:execute(?Name,?Internal,~s,Element),\n",
+		  [Packages]);
+	    _->
+		io_lib:format(
+		"\tNewEvent = utils:~p(Element),\n",
+		  [ActionType])
+	end,
+    SRes = 
+	case ActionType of
+	    {internal_action,_}->
+		"\tRes = [{stutter_action}],\n";
+	    {external_action,_}->
+		"\tRes = [{stutter_action}],\n";
+	    true->
+		"\tRes = [{stutter_action}],\n";
+	    _->
+		"\tRes = [NewEvent],\n"
+	end,
 
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tAchGoal~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:add_achievement_goal(AchGoal~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_external_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,external_action,F={formula,_Atom,_Terms,_Label}}, 
-		 NumAct,Vars})->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
+    SAction = io_lib:format(
+		"~n~s_body_formula_~p(BBID,Valuation)-> \n"++
+		"\tVarNames = ~p,\n"++%TODO: MEJORAR
+		"\tElement = utils:unify_vars(~s,Valuation,VarNames),~n"
+		"~s~s\tRes.~n",
+		[FunName,NumAct]++
+		[Vars]++
+		[SFormula]++
+		[SEvent,SRes]),
 
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tArgs~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tok=utils:execute(?Name,?Environment,Args~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{stutter_action}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-		  %[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct]++
-      [NumAct,Bindings]++
-      [NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,external_action,{atom,_Line,Atom}}, 
-		 NumAct,Vars})->
-    sourceForAction({{action,external_action,{formula,Atom,[],[]}},NumAct,Vars});
-sourceForAction({true, NumAct,_Vars})->
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{stutter_action}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,[]]++
-      [NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,internal_action,Packages,{atom,_Line,Atom}}, 
-		 NumAct,Vars})->
-    sourceForAction({{action,internal_action,Packages,
-		      {formula,Atom,[],[]}},NumAct,Vars});
-sourceForAction({{action,internal_action,Packages,
-		  F={formula,_,_,_}},NumAct,_Vars})->
-    SFormula = sourceForTermVars(F),
-    %io:format("VARNAME : ~s~n",[SFormula]),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tArgs~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tok = utils:execute(?Name,?Internal,~s,Args~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{stutter_action}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [Packages,NumAct]++
-      [NumAct,[]]++
-      [NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,remove_add_belief,F={formula,_Atom,_Terms,_Label}},NumAct,Vars}) ->
-    SFormula = sourceForTermVars(F),
-    ParamsF = getParamNames([F],[]),
-    Indexes = getIndexesForVars(ParamsF,Vars,[]),
-    Bindings  = lists:zip(Indexes,lists:seq(1,length(Indexes))),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBelief~p = utils:unify_vars(~s,Val~p,VarNames),~n"++
-      "\tNewEvent~p = utils:remove_add_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SFormula,NumAct]++
-      [NumAct,NumAct]++
-      [NumAct,Bindings]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]);
-sourceForAction({{action,remove_add_belief,
-		  A={atom,_Line,_Atom}},NumAct,_Vars})->
-    SAtom = sourceForTermVars(A),
-    io_lib:format(%"\tAnswerTo~p ! {Res~p, self()},~n~n"++
-      "\t{AnswerTo~p,NewValues~p} = utils:get_valuation(),~n"++
-      "\tVal~p = utils:updateValuation(Val~p,[NewValues~p],Bindings~p),~n"++
-      "\tBelief~p = {~s},~n"++
-      "\tNewEvent~p = utils:remove_add_belief(BBID,Belief~p),~n"++
-      "\tBindings~p = ~p,~n"++
-      "\tRes~p= [{add_internal_event,NewEvent~p}],~n"++
-      "\tAnswerTo~p ! {Res~p, self()},~n~n",
-						%[NumAct-1,NumAct-1]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct-1,NumAct,NumAct-1]++
-      [NumAct,SAtom]++
-      [NumAct,NumAct]++
-      [NumAct,[]]++
-      [NumAct,NumAct]++
-      [NumAct,NumAct]).
+
+   % io:format("SAction: ~s~nBindings:~p~n",[SAction,Bindings]),
+    {SAction, Bindings}.
+
+
+
+
 
 		       
-		 
+%% Converts an external action into an internal action after finding a dot
 parseInternalAction({no_package},{action, external_action,F}) ->
     {action,internal_action,"'.'",F};
 parseInternalAction({package,P},{action,external_action,F}) ->
@@ -1394,29 +1144,34 @@ parseInternalAction({package,P},{action,internal_action,Packages,F}) ->
 
 
 
-%% generateAgentStart(Name)->
-%%     generateAgentStart(Name,0).
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% 
+%% ERLANG AGENTS
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 generateAgentStart(Name)->
     Module = io_lib:format("-module(~p).~n~n",[Name]),
     Export = "-compile(export_all).\n\n",
     Import = "-include(\"macros.hrl\").\n\n",
-    KBMacro = io_lib:format("-define(KB,~p_kb).~n",[Name]),
     NameMacro = io_lib:format("-define(Name,~p).~n",[Name]),
     InternalMacro = io_lib:format("-define(Internal,~p).~n",[Name]),
     EnvironmentMacro =io_lib:format("-define(Environment,~p).~n",[Name]),
     Start = io_lib:format(
 	      "start()->~n\tstart(0).~n~n~n"++
 	      "start(Num)->~n"
-	      "\t{AgName,BB} = utils:register_agent(Num,self(),~p),~n"++
+	      "\tAgName= utils:register_agent(Num,self(),~p),~n"++
 	      "\tAgent0 = reasoningCycle:"++
-	      "start(AgName,[],[],BB),~n", [Name]),
+	      "start(AgName,[],[],beliefbase:start()),~n", [Name]),
     Init = "\tAgent1 = addInitialBeliefs(Agent0),\n"++
 	"\tAgent2 = addInitialGoals(Agent1),\n"++
 	"\tAgent3 = addPlans(Agent2),\n"++
 	"\treasoningCycle:reasoningCycle(Agent3).\n\n",
-    io_lib:format("~s~s~s~s~s~s~s~s~s",
-		  [Module,Export,Import,KBMacro,
+    io_lib:format("~s~s~s~s~s~s~s~s",
+		  [Module,Export,Import,
 		   NameMacro,InternalMacro,
 		   EnvironmentMacro,Start,Init]).   
 
@@ -1437,21 +1192,12 @@ parseAgents([Name|Names]) when is_atom(Name)->
     file:write(AgentFile,SAgent),
     file:close(AgentFile),
     parseAgents(Names).
-%% parseAgents([{Name,Num}|Names])->
-%%     {ok,Tokens} = scanner:getTokens(io_lib:format("~p.asl",[Name])),
-%%     {ok,AgentPart2} = jasonGrammar:parse(lists:flatten(Tokens)),
-%%     AgentPart1 = generateAgentStart(Name),
-%%     SAgent = io_lib:format("~s~s",[AgentPart1,AgentPart2]),
-%%     AgentFileName = io_lib:format("~p.erl",[Name]),
-%%     {ok, AgentFile} = file:open(AgentFileName,[raw,write]),
-%%     file:write(AgentFile,SAgent),
-%%     file:close(AgentFile),
-%%     parseAgents(Names).
 
 
-generatePlanRecords(PlanList)->
 
-    SPlans = lists:map(fun generatePlan/1,PlanList) ++
+generatePlanRecords(PlanNameBindingsList)->
+    
+    SPlans = lists:map(fun generatePlan/1,PlanNameBindingsList) ++
 	[generate_test_goal_handler_plan()],
 
     Source = string:join(SPlans,",\n"),
@@ -1465,15 +1211,27 @@ generatePlanRecords(PlanList)->
 
 generate_test_goal_handler_plan()->
     "\t#plan{trigger=fun ?Name:ejason_standard_test_goal_handler_trigger/1,\n
-\tbody={?Name, ejason_standard_test_goal_handler_body},\n
+\tbody=[fun ?Name:ejason_standard_test_goal_handler_body/2],\n
 \tcontext=fun ?Name:ejason_standard_test_goal_handler_context/2}".
 
 
+generatePlan({PlanName,Bindings})->
+    SBody = generatePlanRecordBody(PlanName,Bindings,1,""),
+    
+    io_lib:format(
+      "\t#plan{trigger=fun ?Name:~s_trigger/1 ,~n"++
+      "\tbody=~s,"++
+      "~n\tcontext=fun ?Name:~s_context/2}",[PlanName,SBody,PlanName]).
 
-generatePlan(Name)->
-    io_lib:format("\t#plan{trigger=fun ?Name:~s_trigger/1 ,~n"++
-		  "\tbody={?Name,~s_body},"++
-		 "~n\tcontext=fun ?Name:~s_context/2}",[Name,Name,Name]).
 
 
-
+generatePlanRecordBody(PlanName,[],_,Acc)->
+    io_lib:format(
+      "\t\t[~s,\nfun ~s_body_last_formula/1]", 
+      [string:join(lists:reverse(Acc),",\n\t\t"), PlanName]);
+generatePlanRecordBody(PlanName,[SingleBinding|Bindings],Num,Acc)->
+    Formula= io_lib:format("{fun ~s_body_formula_~p/2,~p}",
+			   [PlanName,Num,SingleBinding]),
+    generatePlanRecordBody(PlanName,Bindings,Num+1,[Formula|Acc]).
+    
+		
