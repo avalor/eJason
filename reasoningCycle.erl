@@ -48,14 +48,14 @@ reasoningCycle(#agentRationale{ events = [],
     timer:sleep(200), %% Comment to skip process sleep time
     NewAgent = check_mailbox(Agent),
     reasoningCycle(NewAgent);
-reasoningCycle(#agentRationale{eventSelector = EvSel, 
+reasoningCycle(#agentRationale{selectEvent = EvSel, 
 			       events = Events,
 			       belief_base = BB,
 			       agentName = _AgentName,
 			       plans = Plans,
 			       intentions = Intentions,
-			       optionSelector = OptionSelector,
-			       intentionSelector = IntentionSelector}= Agent)->
+			       selectPlan = OptionSelector,
+			       selectIntention = IntentionSelector}= Agent)->
 
 %    io:format("Agent: ~p~n",[Agent]),
     

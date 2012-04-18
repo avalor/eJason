@@ -14,6 +14,7 @@ start(BB) when is_list(BB)->
 start(BB) when is_atom(BB)->
     [BB].
 
+
 assert({Fact},BB) ->
     assert({Fact,{},[]},BB);
 assert(Fact, BB) when is_tuple(Fact)->
@@ -76,9 +77,9 @@ deny_matching({Atom,Params,Label},BB)->
     NewParams = lists:duplicate(size(Params),'_'),
     NewQuery = {Atom,list_to_tuple(NewParams),Label},    
     QueryList = tuple_to_list (NewQuery),
-    FilterFun = fun (Fact) -> match_fact(QueryList,
+    FilterFun = fun (Fact) -> not match_fact(QueryList,
 					 tuple_to_list(Fact)) end, 
-    Res = lists:dropwhile(FilterFun,BB),
+    Res = lists:filter(FilterFun,BB),
    
    % io:format("DENY MATCHING: ~p~n for BB: ~p~nRes: ~p~n",
 %	      [NewQuery,BB,Res]),
