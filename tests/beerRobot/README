@@ -1,0 +1,23 @@
+To run this example run, in a shell of two different hosts:
+(remember changing the address of agent supermarket in robot.asl to
+the proper host)
+
+*********HOST 1*****
+
+erl -pa ../../eJason/ebin/ -name shopping_mall
+
+Then start agent supermarket with ejason:pcr(supermarket).
+
+
+*********HOST 2*****
+
+erl -pa ../../eJason/ebin/ -name home
+
+Then start agents fridge,robot and owner  with ejason:pcr(Name).
+
+
+
+
+
+
+

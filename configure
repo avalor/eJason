@@ -1,1 +1,1 @@
-erlc -W0 -o ./ebin/ -I ./eJason/include/ -pa ./eJason/src/*.erl
+erlc -W0 -o ./eJason/ebin/ -I ./eJason/include/ -pa ./eJason/src/*.erl

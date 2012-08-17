@@ -1,14 +1,14 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 Thanks for your interest in eJason, our experimental implementation of
 Jason in Erlang. Here you can find the commands necessary to run a MAS
-using eJason.
+using eJason (for UBUNTU Linux)
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 To compile eJason sources, just type:
 
 ./configure
 
-This will generate a set of ".beam" files inside "./ebin".
+This will generate a set of ".beam" files inside "./eJason/ebin".
 
 We also suggest copying into the ebin folder all ".asl" files, i.e. all Jason
 source code files.
