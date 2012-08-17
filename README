@@ -4,13 +4,11 @@ Jason in Erlang. Here you can find the commands necessary to run a MAS
 using eJason.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-To compile eJason sources, we recommend, first, the creation of a
-folder named "ebin" in the same location where eJason sources are
-stored.  Then, calling the following command in a shell:
+To compile eJason sources, just type:
 
-erlc -o ./ebin *.erl
+./configure
 
-These will generate a set of ".beam" files inside "./ebin".
+This will generate a set of ".beam" files inside "./ebin".
 
 We also suggest copying into the ebin folder all ".asl" files, i.e. all Jason
 source code files.
@@ -29,7 +27,7 @@ A new file named "agentName.erl" is generated, which contains the
 eJason source code for the agent. This file must be compiled either
 from a system shell invoking:
 
-erlc -o ./ebin agentName.erl 
+erlc -o ./ebin agentName.erl
 
 Or from the Erlang shell:
 
@@ -44,7 +42,13 @@ This agent will always be alive. If we want to stop it, we must call:
 
 ejason:kill(agentName).
 
-If "N" agents with the same name where launched, we can kill all
+If "N" agents with the same name were launched, we can kill all
 them by invoking:
 
 ejason:kill(agentName, N).
+
+
+****** RUNNING TESTS  ****************
+
+Check the README file for each of the tests, as some may require special
+start parameters or the start of several Erlang nodes
