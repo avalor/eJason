@@ -2,7 +2,7 @@
 	{events=[], agentName="",
 	 module_name = "",
 	 intentions = [],
-	 info = {0,1}, % {Iterations,WaitTime}
+	 info = {0,1,false}, % {Iterations,WaitTime,MBOXCHECKED}
 	 plans = [],
 %	 private_belief_base= undefined, % This belief base contains the
                        % private information of the agent (name, AID,
