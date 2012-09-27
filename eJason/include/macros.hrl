@@ -27,3 +27,7 @@
 -define(UNIQUE,true).
 
 -define(NOTUNIQUE,false).
+
+-define(MBOXCHECKED,true).
+
+-define(MBOXNOTCHECKED,false).
