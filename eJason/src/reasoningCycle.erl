@@ -39,13 +39,14 @@
 
 
 start(AgentName,InitialEvents, Plans,BB)->
+%io:format("New AgentName: ~p~n",[AgentName]),
     #agentRationale{agentName = AgentName,
 		    plans = Plans,
 		    belief_base = BB,
 		    events = InitialEvents}.
 
 reasoningCycle(#agentRationale{ events = [],
-				info = {Iterations,WaitTime},
+				info = {Iterations,WaitTime,_MChecked},
 				intentions = []}= Agent)->
     {NewIterations,NewWaitTime} = 
 	if 
@@ -59,13 +60,23 @@ reasoningCycle(#agentRationale{ events = [],
 			{Iterations +1,WaitTime}
 		end
 	end,
+
     
     timer:sleep(NewWaitTime), %% Comment to skip process sleep time
+%    io:format("Slept ~p milliseconds~n",[NewWaitTime]),
     NewAgent = check_mailbox(Agent),
-    reasoningCycle(NewAgent#agentRationale{info={NewIterations,NewWaitTime}});
-reasoningCycle(Agent)->
+    reasoningCycle(NewAgent#agentRationale{info={NewIterations,NewWaitTime,
+						?MBOXCHECKED}});
+reasoningCycle(Agent= #agentRationale{info={_NewIterations,_NewWaitTime,
+						MailCheck}})->
    %io:format("Initil Agent: ~p~n",[Agent]),
-    NewAgent = check_mailbox(Agent),
+    NewAgent = case MailCheck of
+		   ?MBOXCHECKED->
+		       Agent;
+		   ?MBOXNOTCHECKED -> 
+		       check_mailbox(Agent)
+	       end,
+    
     #agentRationale{selectEvent = EvSel, 
 		    events = Events,
 		    agentName = AgentName,
@@ -105,7 +116,7 @@ reasoningCycle(Agent)->
 		OptionSelector(ItApplicablePlans)
 	end,
     
- % io:format("INTENDED MEANS: ~p~n",[IntendedMeans]),
+%  io:format("INTENDED MEANS: ~p~n",[IntendedMeans]),
  %   exit(avalor),
 
     AllIntentions = processIntendedMeans(Event,Intentions,IntendedMeans),
@@ -120,20 +131,22 @@ reasoningCycle(Agent)->
 	%	      [Agent#agentRationale.agentName,TestPid]);
 	[] ->
 	   % reasoningCycle(Agent);
-	    reasoningCycle(Agent#agentRationale{events = NotChosenEvents});
+	    reasoningCycle(Agent#agentRationale{events = NotChosenEvents,
+					       info={0,1,?MBOXNOTCHECKED}});
 	
 	{Intention,NotChosenIntentions} ->
 %	    io:format("Chosen Intention: ~p~n",[Intention]),
 	    
 	    Result = executeIntention(BB,ModuleName,Intention),
-	    %io:format("Result from Execute intention is ~p~n",[Result]),
+%	   io:format("Result from Execute intention is ~p~n",[Result]),
 	    FinalAgent = 
 		applyChanges(Agent#agentRationale
 			     {events = NotChosenEvents,
 			      intentions = NotChosenIntentions},
 				     Result),
 %	   io:format("FinalAgent: ~p~n",[FinalAgent]),
-	   reasoningCycle(FinalAgent);
+	   reasoningCycle(FinalAgent#agentRationale{
+			    info={0,1,?MBOXNOTCHECKED}});%% Info is RESTARTED
 	Other->
 	    io:format("ERROR: Intention would be: ~p~n",[Other])
     end.
@@ -159,6 +172,7 @@ findApplicablePlans(Agent = #agentRationale{belief_base = BB},
 		    iterator:create_iterator([])
 	    end;
 	_ ->
+
 	    Fun =  fun (Plan) -> match_plan(BB,Type,EBody,Plan) end,
 	    iterator:create_iterator_fun(ItPlans,Fun)
     end.
@@ -169,7 +183,7 @@ match_plan(BB,EventType,EventBody,% = {Name,Args,_Annot},
 	   Plan = #plan{trigger=Trigger,bindings=Bindings}) ->
 %   io:format("EventType: ~p~nEvent: ~p~nPlan: ~p~n",
 %	      [EventType,EventBody,Plan]),
- % io:format("EventBodyList: ~p\n",
+ %io:format("EventBodyList: ~p\n",
 %	      [tuple_to_list(EventBody)]),
 
     Params  = 
@@ -332,25 +346,26 @@ executeIntention(_BBID,_ModuleName,[])->
 executeIntention(_BBID,ModuleName,Intention = [SIPlan|_RestSIP])->
 %    io:format("Executing Intention: ~p~n",[Intention]),
 %    case ModuleName of
- %     robot ->
+%      _ ->
 %	    io:format("Executing Intention: ~p~n",[SIPlan]);
-%
- %     _ -> 
+
+%      _ -> 
 %	  
 %	  {}
- % end, 
+ %end, 
 %Formula = case SIPlan#piPlan.formulas of
 %		  [{NewFormula,_Bindings}|_RestFormulas]->
 %		      NewFormula;
 %		  [TestGoalBodyFormula] ->
 %		      TestGoalBodyFormula
 %	      end,
+
     Valuation = SIPlan#piPlan.valuation,
 
     case SIPlan#piPlan.formulas of
 	
 	[Formula|_] ->
-	   % io:format("Formula: ~p ~p~n",[Formula,Valuation] ),
+%	    io:format("Formula: ~p ~p~n",[Formula,Valuation] ),
 	    Result = Formula(Valuation),
 %	    io:format("Result of execution: ~p~n",[Result]),
 	    processAnswer(ModuleName,Intention, Result);
@@ -488,12 +503,12 @@ processAnswer(ModuleName,Intention,Answer)->
 			     relatedIntention=Intention}];%++
 %			 furtherInstantiatePlan(Intention,[]);
 		 {add_ejason_private_query, {QueryName,Args,Annot}}->
-		     [{addEvent,#event{type = add_ejason_private_query,
+		     [#event{type = add_ejason_private_query,
 				       body ={ QueryName,
 					        add_ejason_private_query,
 					       ModuleName, 
 					       Args,Annot},
-				      relatedIntention=Intention}}];
+				      relatedIntention=Intention}];
 
 
 		 {stutter_action} ->
@@ -547,7 +562,7 @@ applyChanges( #agentRationale{events = Events,
 			     belief_base = BB}=Agent,
 	     [Change |Changes])->
 
-    %  io:format("Change: ~p~nThen: ~p~n",[Change,Changes]),
+%      io:format("Change: ~p~nThen: ~p~n",[Change,Changes]),
 
     NewAgent = case Change of
 		   {deleteIntention,_}->
@@ -556,8 +571,16 @@ applyChanges( #agentRationale{events = Events,
 		  %     io:format("Add: ~p~n",
 		%		 [NewIntention]),
 		       Agent#agentRationale{intentions = [NewIntention|Intentions]};
-%		   {addEvent, NewEvent} ->
-%		       Agent#agentRationale{events = [NewEvent|Events]};
+
+		   {addIntention,NewIntention} ->
+		  %     io:format("Add: ~p~n",
+		%		 [NewIntention]),
+		       Agent#agentRationale{intentions = [NewIntention|Intentions]};
+
+		   #event{type = add_ejason_private_query} ->
+			Agent#agentRationale{ events = 
+					      [Change|Events]};
+
 
 		   #event{type = ?ADDBELIEF, body = Body} ->
 		 %      io:format("Body: ~p~n",[Body]),
@@ -576,6 +599,7 @@ applyChanges( #agentRationale{events = Events,
 						   events = 
 						   [NewEvent|Events]}
 		       end;
+
 
 		   #event{type = ?REMOVEBELIEF, body = Body} ->
 		      Belief = utils:vars_to_bindings(Body),
@@ -695,19 +719,20 @@ gatherOneMessage() ->
 %    lists:reverse(Acc);
 processMessage(Agent = #agentRationale{events = Events,
 				       module_name = Module},
-		BB,Message)->
- %   case Message of
+	       BB,Message)->
+%    case Message of
 %	[]->
 %	    ok;
 %	_ ->
-%	    io:format("\nreceives [~p]Message: ~p~n",[Module,Message])
- % end,
+%	    io:format("\n[~p] at ~p receives Message: ~p~n",[Module,
+%				         erlang:now(),Message])
+ %  end,
 
     NewAgent = 
 	case Message of
 
- {'DOWN', _Ref,process, DeadProc, Reason} = DownMessage->
-%		io:format("DOWNMESSAGE: ~p~n",[DownMessage]),
+	    {'DOWN', _Ref,process, DeadProc, Reason} = DownMessage->
+		%		io:format("DOWNMESSAGE: ~p~n",[DownMessage]),
 		NewReason =
 		    case Reason of
 			noproc ->
@@ -717,35 +742,37 @@ processMessage(Agent = #agentRationale{events = Events,
 			_ ->
 			    {dead_agent,{},[]}
 		    end,
-					    
-
-		NewEvent = case DeadProc of 
-		    _ when is_pid(DeadProc) ->
-			utils:add_belief([],
-					 {agent_down,{DeadProc},
-					  [{reason,{NewReason},[]}]});
-		    {RegName,Node} ->
-			utils:add_belief([],
-					 {agent_down,{RegName,Node},
-					  [{reason,{NewReason},[]}]})
-		end,
+				
+		NewEvent = 
+		    case DeadProc of 
+%			_ when is_pid(DeadProc) ->
+%			    utils:add_belief([],
+%					     {agent_down,{DeadProc},
+%					      [{reason,{NewReason},[]}]});
+			{RegName,Node} ->
+			    utils:add_belief([],
+					     {agent_down,
+					      {{RegName,{},
+						[{container,{Node},[]}]}},
+					      [{reason,{NewReason},[]}]})
+		    end,
 		%exit(avalor),
-		applyChanges(Agent,[NewEvent]);
-    
-
-
-
-
+		applyChanges(Agent,[NewEvent]);  
+	    
+	    
 	     {communication, Sender,Arch,{tell,Content}}->
 	%	io:format("Message: ~p~n",[Message]),
 		NewAnnot =
-		    {source,{Sender,Arch},[]},
+		    [{source,
+		      {{Sender,{},[{container,{Arch},[]}]}},
+		      []}],
+%		io:format("NewAnnot: ~p~n",[NewAnnot]),
 		AnnotContent =
 		    case Content of 
 			A when is_atom(Content) ->
 			    {A,{},[NewAnnot]};
 			{Atom,Terms,Annot} ->
-			    {Atom,Terms,[NewAnnot|Annot]}
+			    {Atom,Terms,NewAnnot++Annot}
 		    end,
 			
 		%EventBody = utils:add_belief(Module,AnnotContent),
@@ -758,14 +785,15 @@ processMessage(Agent = #agentRationale{events = Events,
 	    {communication, Sender, Arch, {achieve,Content}}->
 	
 		NewAnnot =
-		    {source,{Sender,Arch},[]},
-	
+		    [{source,
+		      {{Sender,{},[{container,{Arch},[]}]}},
+		      []}],
 		AnnotContent =
 		    case Content of 
 			A when is_atom(Content) ->
 			    {A,{},[NewAnnot]};
 			{Atom,Terms,Annot} ->
-			    {Atom,Terms,[NewAnnot|Annot]}
+			    {Atom,Terms,NewAnnot++Annot}
 		    end,
 		NewEvent = utils:add_achievement_goal([],AnnotContent),
 		%io:format("New event: ~p~n",[NewEvent]),

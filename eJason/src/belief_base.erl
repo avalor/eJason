@@ -65,11 +65,13 @@ drop_first(Query,[Fact|List],Acc)->
 %% Finds which elements of BB match the pattern in Query
 find(Query,BB)->
  %   io:format("Queried: ~p~n",[Query]),
-   % QueryList = tuple_to_list (Query),
+  %  io:format("BB: ~p~n",[BB]),
+%    QueryList = tuple_to_list (Query),
+
     FilterFun = fun (Fact) -> match_fact(Query,
 					 Fact) end, 
     Res = lists:filter(FilterFun,BB),
-  %  io:format("Result from BB: ~p~n",[Res]),
+   % io:format("Result from BB: ~p~n",[Res]),
     Res.
 
 
@@ -81,16 +83,43 @@ find(Query,BB)->
 
 match_fact({QueryName,QueryArgs,QueryAnnots},
 	  {FactName,FactArgs,FactAnnots}) when size(QueryArgs) ==
-						     size(FactArgs),
-					       QueryName == FactName->
-    case match_args(tuple_to_list(QueryArgs),tuple_to_list(FactArgs)) of
+						     size(FactArgs)->
+					     %  QueryName == FactName->
+%    io:format("QName: ~p  FactName: ~p~n"++
+%	      "QArgs: ~p~nFactArgs: ~p~n"++
+%	      "QAnnots: ~p  FactAnnots: ~p~n",[QueryName,FactName,
+%					      QueryArgs,FactArgs,QueryAnnots,
+%					      FactAnnots]),
+    NameMatch = 
+	case {QueryName,FactName} of
+	    {FactName,FactName} ->
+		true;
+	    {'_',_}->
+		true;
+	    _ ->
+		false
+		    end,
+
+    if 
+	NameMatch ->
+	    
+	    case match_args(tuple_to_list(QueryArgs),tuple_to_list(FactArgs)) of
+		true ->
+		    match_annots(QueryAnnots,FactAnnots);
+		false ->
+%		    io:format("args do not match~p"),
+		    false
+	    end;
 	true ->
-	    match_annots(QueryAnnots,FactAnnots);
-	false ->
 	    false
     end;
-match_fact(A,B) ->
-%    io:format("A ~p does not match ~p~n",[A,B]),
+match_fact(A= {QueryName,QueryArgs,QueryAnnots},
+	   B={FactName,FactArgs,FactAnnots} ) ->
+%    io:format("~p does not match ~p~n",[A,B]),
+%   io:format("Because:  size(QueryArgs) =/=
+%    size(FactArgs) -> ~p =/= ~p~n  QueryName =/= FactName 
+%    ~p =/= ~p~n",[ size(QueryArgs), size(FactArgs),QueryName,FactName]),
+
     false.
 
 
@@ -128,6 +157,7 @@ match_args(_,_) ->
 match_annots([],_)->
     true;
 match_annots([QueryAnnot|Annots],FactAnnots) ->
+ %   io:format("Trying to match ~p in ~p~n",[QueryAnnot,FactAnnots]),
     case find(QueryAnnot,FactAnnots) of
 	[] ->
 	    false;

@@ -208,16 +208,15 @@ match_vars( Pred1 = {PName1,Args1,Annot1} ,Pred2 = {PName2,Args2,Annot2} )
 
 match_vars(P1,P2) ->
     io:format("[variables:match_vars/2, error] :P1: ~p~nP2: ~p~n",[P1,P2]),
-    exit(error).
-    
+    exit(error).   
 
 
 %% Calculates the new Bindings for the annotations
 %% Queries only contains timestamps to be matched later
 try_annot_matches(Bindings,Annotations,Queries)->
-%    io:format("Annotations: ~p~nQueries: ~p~n",[Annotations,Queries]),
+  %  io:format("Annotations: ~p~nQueries: ~p~n",[Annotations,Queries]),
     Iterator = try_annot_match(Bindings,Annotations,Queries),
-%    io:format("Returning: ~p~n",[ iterator:first(Iterator)]),
+ %   io:format("Returning: ~p~n",[ iterator:first(Iterator)]),
 
     iterator:first(Iterator).
 
@@ -228,21 +227,12 @@ try_annot_match(Bindings,Annotations,[Query|Rest]) ->
     RealQuery = utils:valuate(Bindings,Query),
 %    io:format("Real annot query: ~p~n",[RealQuery]),
     Fun = fun (NewBindings) ->
-		  % Allow backtracking when matching annotations
+	      % Allow backtracking when matching annotations
 		  FinalBindings = update(Bindings,NewBindings),
 		  try_annot_match(FinalBindings,Annotations,Rest) end,
     iterator:create_iterator_fun(
       belief_base:match_annotation(Annotations,RealQuery),
       Fun).
-
-
-
-
-
-
-
-
-
 
 
 

@@ -46,7 +46,7 @@ inactive(robot).
    !!get(beer).
  
 
-+msg(M)[source(Ag,Arch)] : true 
++msg(M)[source(Ag)] : true 
    <- .print(Ag," says: ",M); 
       -msg(M);
       .print("Unacceptable!");
@@ -68,9 +68,9 @@ inactive(robot).
      .wait(2000);
      !!get(beer).
 
-+agent_down(robot,Arch): true <-
++agent_down(robot[container(Arch)]): true <-
       +inactive(robot);
-      -agent_down(robot,Arch);
+      -agent_down(robot);
       .create_agent(robot,"robot.asl");
       .print("robot has stopped working. Start anew!");
       !monitor(robot).

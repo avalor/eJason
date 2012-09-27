@@ -60,6 +60,15 @@ lex([Token | Tokens]) ->
 		_ ->
 		    [{'-', Line} | lex(Tokens)]
 	    end;
+
+
+%	{'[', Line} ->
+%	    {Items,Rest} = lex(Tokens),
+%	    [{list, Line} | lex(Tokens)]
+%	    end;
+
+
+
 	{'!', Line} ->
 	    case Tokens of
 		[{'!',_Line2}|MoreTokens] ->
@@ -92,6 +101,9 @@ lex([Token | Tokens]) ->
 	    case Tokens of
 		[{'(',_OtherLine}|_] ->
 		    [{var_fun,Line,VarName}|
+		     lex(Tokens)];
+		[{'[',_OtherLine}|_] ->
+		    [{var_label,Line,VarName}|
 		     lex(Tokens)];
 		_ ->
 		    [{var,Line,VarName}|

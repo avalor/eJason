@@ -12,7 +12,15 @@ resolve_query(_Agent,
 	    {Var},_Annot}) when is_record(Var,var)->
     
     try
-	PrivateGoal = #var{is_ground = true, bind = self()},
+	MyName = case process_info(self(),registered_name) of
+		     [] ->
+			 io:format("[Private_query] Unregistered agent~n"),
+			 exit(fatal_error);
+		     {registered_name,AgentName}->
+			 AgentName
+		 end,
+
+	PrivateGoal = #var{is_ground = true, bind = MyName},
 	
 	Result =  variables:match_vars(PrivateGoal,Var),
 	{[Result],[Var#var{bind = Result#var.timestamp}]}

@@ -1,0 +1,3 @@
+To run this example run, in a shell of two different hosts:
+
+erl -name shopping

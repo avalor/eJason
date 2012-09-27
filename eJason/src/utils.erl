@@ -503,14 +503,14 @@ replacePositionInList(List,N,_NewElement) when N < 1->
 
 
 internal_action(Module, InAc = {#var{bind = ActName},Args,Annot}) ->
-    %io:format("InternalAction: ~p ~n",[InAc]),
+%    io:format("InternalAction: ~p ~n",[InAc]),
     
-    %io:format("Action: ~p ~n~p~n",[Args,size(Args)]),
+  %  io:format("Action: ~p ~n~p~n",[Args,size(Args)]),
     Fun = fun (X) ->
 		  binds_for_vars(X) end,	  
 		  
     Params = list_to_tuple(lists:map(Fun, tuple_to_list(Args))),
-   %io:format("[utils] InAc Params: ~p~n",[Params]),
+ %  io:format("[utils] InAc Params: ~p~n",[Params]),
     execute(Module,Module,'.',{ActName,Params,Annot}).
 
 %% TODO: rename
@@ -537,17 +537,32 @@ binds_for_vars(List) when is_list(List)->
 %% SEND a message to some other agent
 execute(Name, _Module,'.',{send,{Receiver,
 				 {Intention,{},[]},Message},_})->
-%    io:format("receiver is: ~p~n",[Receiver]),
- %   io:format("Name is: ~p~n",[Name]),
 
-    RegName = case Receiver of
+%% Receiver can be an agent's name or a structure  AgentName[Container]
+%io:format("Receiver: ~p~n",[Receiver]),
+    ReceiverID = case  Receiver of
 	       Receiver when is_atom(Receiver) ->
 		   Receiver;
 	       Pid when is_pid(Pid)->
 		  Pid; 
+               {RecvName,{},[{container,{RecvContainer},_}]}->
+			 RName = case RecvName of
+				     _ when is_atom(RecvName)->
+					 RecvName;
+				     {AtomRecv,{},[]} ->
+					 AtomRecv
+				 end,
+			 RContainer = case RecvContainer of
+					_ when is_atom(RecvContainer)->
+					      RecvContainer;
+					  {AtomContainer,{},[]} ->
+					      AtomContainer
+				      end,
+			{RName,RContainer};		  
 	       {Atom,{},[]} ->
 		   Atom
 	   end,
+
     NewIntention =
 	case Intention of
 	       _ when is_atom(Intention) ->
@@ -556,58 +571,87 @@ execute(Name, _Module,'.',{send,{Receiver,
 		   AtomInt
 	   end,
 
-   % io:format("~p receiver is: {~p,~p}~n",[erlang:now(),RegName,node()]),
+%    io:format("~p receiver is: {~p,~p}~n",[erlang:now(),ReceiverID,node()]),
 
     %io:format("{Intention,Message} is: {~p,~p}~n",[NewIntention,Message]), 
-    try
-    RegName ! {communication,Name,node(),{NewIntention,Message}}
-    catch
-	_:_ -> % Send does not fail
-	    ok
-    end,
-    {stutter_action};
-execute(Name, _Module,'.',{send,{Receiver,
-				 Arch,
-				 {Intention,{},[]},
-				 Message},_})->
-
-    RegName = case Receiver of
-	       Receiver when is_atom(Receiver) ->
-		   Receiver;
-	       Pid when is_pid(Pid)->
-		  Pid; 
-	       {Atom,{},[]} ->
-		   Atom
-	   end,
-    NewIntention =
-	case Intention of
-	       _ when is_atom(Intention) ->
-		   Intention;
-	       {AtomInt,{},[]} ->
-		   AtomInt
-	   end,
-    Node =
-	case Arch of
-	    _ when is_atom(Arch) ->
-		Arch;
-	    {AtomNode,{},[]} ->
-		AtomNode
-	end,
     
+    case process_info(self(),registered_name) of
+	    {registered_name,MyName}->
+		MyName,
+		try
 
+%		    io:format("Send ~p at: ~p~n",[Message,erlang:now()]),
+		    ReceiverID ! 
+		    {communication,MyName,node(),{NewIntention,Message}}
+		catch
+		    _:_ -> % Send does not fail
+			ok
+		end,
+		{stutter_action};
+	    _ ->
+		io:format("[Utils] Unregistered Agent sends~n"),
+		{fail}
+	end;
 
-   % io:format("~p receiver is: {~p,~p}~n",[erlang:now(),RegName,Node]),
- %   io:format("Name is: ~p~n",[Name]),
-    {RegName,Node} ! {communication,Name,node(),{NewIntention,Message}},
-    {stutter_action};
+%%% OLD SEND WITH CONTAINER AS EXTRA PARAMETER
+%execute(Name, _Module,'.',{send,{Receiver,
+%				 Arch,
+%				 {Intention,{},[]},
+%				 Message},_})->
+%io:format("Receiver2: ~p~n",[Receiver]),
 
+ %   RegName = case Receiver of
+%	       Receiver when is_atom(Receiver) ->
+%		   Receiver;
+%	       Pid when is_pid(Pid)->
+%		  Pid; 
+%	       {Atom,{},[]} ->
+%		   Atom
+%	   end,
+ %   NewIntention =
+%	case Intention of
+%	       _ when is_atom(Intention) ->
+%		   Intention;
+%	       {AtomInt,{},[]} ->
+%		   AtomInt
+%	   end,
+ %   Node =
+%	case Arch of
+%	    _ when is_atom(Arch) ->
+%		Arch;
+%	    {AtomNode,{},[]} ->
+%		AtomNode
+%	end,
+  
+ 
+
+  %  io:format("~p receiver is: {~p,~p}~n",[erlang:now(),RegName,Node]),
+   % io:format("My Name is: ~p self: ~p, reg: ~p~n",[Name, self(),
+%						   whereis(Name)]),
+ 
+ %   case process_info(self(),registered_name) of
+%	    {registered_name,MyName}->
+%		MyName,
+%		try
+%		{RegName,Node} ! 
+%		    {communication,MyName,node(),{NewIntention,Message}}
+%		catch
+%	    _:_ -> % Send does not fail
+%			ok
+%		end,
+%		{stutter_action};
+%	    _ ->
+%		io:format("[Utils] Unregistered Agent sends~n"),
+%		{fail}
+%	end;
 
 %% CREATE a new agent
 execute(Name, Module,'.',{create_agent,{AName,
 					 ParamCode},Label})->
     execute(Name, Module, '.', {create_agent,
 				{AName,node(),
-				 ParamCode,[]},Label});				 
+				 ParamCode,[]},Label});	
+
 %  AgentName = 
 %		case AName of
 %		    _ when is_atom(AName) ->
@@ -621,10 +665,9 @@ execute(Name, Module,'.',{create_agent,{AName,
 %		    {AtomCode,{},[]} ->
 %			AtomCode
 %		end,
-
-
- %   spawn(Code,start,[AgentName]),
+%   spawn(Code,start,[AgentName]),
 %     {stutter_action};
+
 execute(Name, Module,'.',{create_agent,{AName,Node,ParamCode},Label})
   when is_list(ParamCode), is_atom(Node)->
     execute(Name, Module, '.', {create_agent,
@@ -638,8 +681,8 @@ execute(Name, Module,'.',{create_agent,{AName,ParamCode,Custom},Label})
 				{AName,node(),
 				 ParamCode,Custom},Label});
 			 
-execute(Name, _Module,'.',{create_agent,{AName,InputNode,ParamCode,_Custom},Label})->
-%    io:format("utils1~n"),
+execute(Name, _Module,'.',{create_agent,New = {AName,InputNode,ParamCode,_Custom},Label})->
+%    io:format("New: ~p~n",[New]),
     AgentName = 
 		case AName of
 		    _ when is_atom(AName) ->
@@ -670,7 +713,7 @@ execute(Name, _Module,'.',{create_agent,{AName,InputNode,ParamCode,_Custom},Labe
 		AtomNode
 	end,
     
- %  io:format("utils4~n~p~n",[Code]),
+%  io:format(" spawn(~p,~p,start,[~p])~n",[Node,Code,AgentName]),
 
 %% TODO: check whether code can be found!!
     spawn(Node,Code,start,[AgentName]),
@@ -680,37 +723,52 @@ execute(Name, _Module,'.',{create_agent,{AName,InputNode,ParamCode,_Custom},Labe
 
 
 %% PRINT some string in the standard output
-execute(Name,_module,'.',{print,String,_})-> 
+execute(_Name,_module,'.',{print,String,_})-> 
 %    io:format("IMPRIMIENDO ~p~n",[String]),
     NewString =     print_list(tuple_to_list(String)),
-
+    MyName = case process_info(self(),registered_name) of
+		 [] ->
+		     io:format("[Utils] Unregistered agent~n"),
+		     unreg_agent;
+	%		 exit(fatal_error);
+		 {registered_name,AgentName}->
+		     AgentName
+	     end,
 %    io:format("[~p:~p]: ~s",[Name,node(),NewString]),
-    io:format("[~p]: ~s",[Name,NewString]),
+    io:format("[~p]: ~s",[MyName,NewString]),
 %    io:format("[~p,~p]: ~s",[Name,erlang:now(),NewString]),
 
    {stutter_action};
 
 %% KILL another agent (the process running it)
 execute(Name,_Module,'.',{kill_agent,{AName},_Annot}) ->
-    
-   AgentName = 
-		case AName of
-		    _ when is_atom(AName) ->
-			AName;
-		    {AtomName,{},[]} ->
-			AtomName
-		end,
- 
-    case  whereis(AgentName) of
-       Pid when is_pid(Pid) ->
-	   exit(Pid,kill) ;
-       _->
-	   ok
-   end,
+   
+%% AName can be an agent's name or a structure AgentName[Container]
+%    io:format("Killing: ~p~n",[AName]),
+
+    case AName of
+	_ when is_atom(AName) ->
+	   case whereis(AName) of
+		Pid when is_pid(Pid) ->
+		    exit(Pid,kill) ;
+		_->
+		    ok
+	    end;
+	{AtomName,{},[]} ->
+	    case whereis(AtomName) of
+		Pid when is_pid(Pid) ->
+		    exit(Pid,kill) ;
+		_->
+		    ok
+	    end;
+	{RegName,{},[{container,{Container},_}]}->
+	    execute(Name,"",'.',{kill_agent,{RegName,Container},[]})  
+    end,
     {stutter_action};
 execute(Name,_Module,'.',{kill_agent,{AName,
-				      Arch},_Annot}) ->
+				      Container},_Annot}) ->
 
+%    io:format("Killing: ~p in ~p~n",[AName,Container]),
 
     AgentName = 
 		case AName of
@@ -722,14 +780,12 @@ execute(Name,_Module,'.',{kill_agent,{AName,
 
 
     Node =
-	case Arch of
-	    _ when is_atom(Arch) ->
-		Arch;
+	case Container of
+	    _ when is_atom(Container) ->
+		Container;
 	    {AtomNode,{},[]} ->
 		AtomNode
 	end,
-
-
 
 
     Mypid = self(), 
@@ -766,18 +822,19 @@ execute(Name,_Module,'.',{wait,{WaitTime},_Annot}) ->
 
 execute(Name,_Module,'.',{monitor,{AID},_Annot}) ->
  
-
+%	io:format("~p monitors ~p ~n",[self(), AID]),
     case  AID of
-	Pid when is_pid(Pid) ->
-	    monitor(process,Pid),
-	    {stutter_action};
+%	Pid when is_pid(Pid) ->
+%	    monitor(process,Pid),
+%	    {stutter_action};
+	
+
+	    
+
 	
 	RegName when is_atom(RegName) ->
 	  %  monitor(process,RegName),
-
-%	io:format("~p monitors ~p (~p) ~p~n",[self(), RegName, 
-%					      whereis(RegName), 
-%					      monitor(process,RegName)]),
+	    
 	    monitor(process,{RegName,node()}),
 	    {stutter_action};
 
@@ -790,6 +847,14 @@ execute(Name,_Module,'.',{monitor,{AID},_Annot}) ->
     	    monitor(process,{RegName,node()}),
 
 	    {stutter_action};	
+
+	{RegName,{},[{container,{Container},_}]}->
+	    execute(Name,"",'.',{monitor,{RegName,Container},[]});  
+%    	    monitor(process,{RegName,node()}),
+
+
+
+%	    {stutter_action};
 	_->
 	    {fail}
    end;
@@ -819,7 +884,7 @@ execute(Name,_Module,'.',{monitor,{AName,
 	
 	_->
 	    {fail}
-   end;
+    end;
 
   
 %% GET AID by returning the pid of the erlang process running it
@@ -851,8 +916,8 @@ print_list(List)->
 
 print_elem({PName,PArgs,PAnnot}) when is_tuple(PArgs),
 				     is_list(PAnnot)->
-%    io:format("Name: ~p~nArgs: ~p~nAnnot: ~p~n",
-%      [PName,PArgs,PAnnot]),
+ %   io:format("Name: ~p~nArgs: ~p~nAnnot: ~p~n",
+ %     [PName,PArgs,PAnnot]),
     Fun = fun (X) ->
 		  print_elem(X) end,
     case PArgs of
@@ -866,7 +931,7 @@ print_elem({PName,PArgs,PAnnot}) when is_tuple(PArgs),
 			     lists:map(Fun,tuple_to_list(PArgs)),", ")])
     end;
 print_elem(Else) ->
-  %io:format("Else: ~p~n",[Else]),
+%  io:format("Else: ~p~n",[Else]),
    String = if
 		is_integer(Else)->
 		    integer_to_list(Else);
@@ -878,6 +943,7 @@ print_elem(Else) ->
 		    pid_to_list(Else);
 		is_record(Else,var)->
 		    print_elem(Else#var.bind);
+	       
 		true->
 		    io:format("[Utils] Error in to_string(~p)\n",[Else]),
 		    exit(error_in_utils)
@@ -893,22 +959,29 @@ print_elem(Else) ->
 %%     io:format("[~p]: ~p~n",[Name,String]).
 
 
-
 register_agent(OrderNum,Pid,Name,Uniqueness)->
-    %io:format("Name: ~p~nNum: ~p~n",[Name,OrderNum]),
-    case whereis(Name) of
+%   io:format("Name: ~p~nNum: ~p~n",[Name,OrderNum]),
+    NewName = case(OrderNum) of
+		  1 ->
+		      Name;
+		  _ ->
+		      erlang:list_to_atom(
+			lists:flatten(
+			  io_lib:format("~p_~p",[Name,OrderNum])))
+	      end,
+    case whereis(NewName) of
 	undefined->
-	    register(Name,Pid),
-	    Name;
+	    register(NewName,Pid),
+	    NewName;
 	_ ->
 	    case Uniqueness of
 		?UNIQUE ->
 		    exit(already_existing_agent);
 		?NOTUNIQUE->
-		    NewName = erlang:list_to_atom(
-				lists:flatten(
-				  io_lib:format("~p_~p",[Name,OrderNum]))),
-		    utils:register_agent(OrderNum+1,Pid,NewName)
+		    %NewName = erlang:list_to_atom(
+		%		lists:flatten(
+		%		  io_lib:format("~p_~p",[Name,OrderNum]))),
+		    utils:register_agent(OrderNum+1,Pid,Name,Uniqueness)
 	    end
     end.
 	    

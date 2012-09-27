@@ -1,8 +1,11 @@
 next(X,Y) :-
-  	       Y = X +1.
+   Y = X +1.
+
 
 		   
-+actual_count(Count)[source(Pupil,Arch)]:true <-
-	-actual_count(Count)[source(Pupil,Arch)];
++actual_count(Count)[source(Sender)]: true <-
+	.print("Message from ",Sender);
+	-actual_count(Count)[source(Sender)];
 	?next(Count,Next);
-	.send(Pupil,Arch,tell,actual_count(Next)).
+	.send(Sender,tell,actual_count(Next)).
+

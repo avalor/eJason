@@ -136,16 +136,40 @@ pre_parse([true|Expr], Bindings,PStruct)->
     pre_parse_atom([{atom,0,true}|Expr],
 				    Bindings,PStruct);
 pre_parse([{var,_Line,VarName}|Expr],
-			   Bindings,PStruct)->
-    {NewBindings,NewCode} = 
-	case find_binding(VarName,Bindings) of
-	    ?UNBOUNDVAR ->		
-		NewVar = 
-		    #var{name = VarName},
-		{[NewVar|Bindings],NewVar};
-	    Value ->
-		{Bindings,Value}
+	  Bindings,
+	  PStruct= #parsing_struct{info=Info,counter = Counter})->
+
+
+    {NewBindings,NewCode,NewCounter} = 
+	case Info of %% the input parameters (plans,rules)
+                     %% SHALL be given different names
+	   []->
+		case find_binding(VarName,Bindings) of
+		    ?UNBOUNDVAR ->		
+			NewVar = 
+			    #var{name = VarName},
+			{[NewVar|Bindings],NewVar,Counter};
+		    Value ->
+			{Bindings,Value,Counter}
+		end;
+	    params ->
+		case find_binding(VarName,Bindings) of
+		    ?UNBOUNDVAR ->		
+			NewVar = 
+			    #var{name = VarName},
+			{[NewVar|Bindings],NewVar,Counter };
+		    Value ->
+			NewName =
+			    list_to_atom(lists:flatten(
+					   io_lib:format("~s~p",
+							 [atom_to_list(
+							    Value#var.name),
+							  Counter]))),
+			{Bindings,
+			 Value#var{name = NewName},Counter+1}
+		end
 	end,
+		
     Acc = PStruct#parsing_struct.accum,
 	 pre_parse(Expr, NewBindings,
 	  		            PStruct#parsing_struct{
@@ -196,21 +220,22 @@ pre_parse([{formula,FunName,Terms,Label}|Expr],
 					     is_ordered = true,
 					     counter=Counter1});
 	    {var,Line,VariableFunName} ->
-	%	io:format("AQUI!!!!!!!!!1\n\n"),
+	%	io:format("[JNParser] FunName is var: ~p\n\n",[FunName]),
+	%	exit(error),
 		pre_parse([{var,Line,VariableFunName}],Bindings,
 			  #parsing_struct{
-					     is_ordered = true,
-					     counter=Counter1})
+					is_ordered = true,
+					counter=Counter1})
 	end,
 
     Counter2 = NewPStruct1#parsing_struct.counter,
-
+    %io:format("Terms: ~p~n", [Terms]),
     {NewBinding2,NewPStruct2} =
 	pre_parse(Terms, NewBinding1,
 				   #parsing_struct{
-					    %is_ordered = true,
+					    info = params,
 					    counter=Counter2}),
-    
+
     Counter3 = NewPStruct2#parsing_struct.counter,
 
     {NewBinding3,NewPStruct3} =
@@ -225,6 +250,7 @@ pre_parse([{formula,FunName,Terms,Label}|Expr],
     
     [NewAtom] = NewPStruct1#parsing_struct.accum,
     NewTerms = NewPStruct2#parsing_struct.accum,
+    %io:format("NewTerms: ~p~n", [NewTerms]),
     NewLabel = NewPStruct3#parsing_struct.accum,
     Predicate = make_predicate(NewAtom,NewTerms,NewLabel),
 
@@ -232,14 +258,6 @@ pre_parse([{formula,FunName,Terms,Label}|Expr],
 			       PStruct#parsing_struct{
 				 counter = Counter4,
 				 accum = [Predicate|Acc]});
-
-
-
-
-
-
-
-
 
 
 pre_parse(Other,_,_) ->
@@ -251,19 +269,38 @@ pre_parse(Other,_,_) ->
 pre_parse_atom([{_,_Line,AtomValue}|Expr],
 			   Bindings,PStruct)->
     Counter = PStruct#parsing_struct.counter,
-	 {NewBindings,NewCode,NewCounter} = 
-	case is_bound_atom(AtomValue,Bindings) of
-	    ?UNBOUNDVAR->
+    Info = PStruct#parsing_struct.info,
+	 {NewBindings,NewCode,NewCounter} =
+	case Info of 
+	    []->
+		case is_bound_atom(AtomValue,Bindings) of
+		    ?UNBOUNDVAR->
+			SVarName ="EjasonVar"++integer_to_list(Counter),
+			VarName = list_to_atom(SVarName),
+			Counter2 = Counter +1,
+			NewVar = 
+			    #var{name = VarName,
+                                     is_ground = true,
+				 bind = AtomValue},
+			{[NewVar|Bindings],NewVar,Counter2};
+		    Value ->
+			{Bindings,Value,Counter}
+		end;
+	    params ->
 		SVarName ="EjasonVar"++integer_to_list(Counter),
 		VarName = list_to_atom(SVarName),
 		Counter2 = Counter +1,
-		    NewVar = 
-			   #var{name = VarName,
+		case is_bound_atom(AtomValue,Bindings) of
+		    ?UNBOUNDVAR->
+			NewVar = 
+			    #var{name = VarName,
                                      is_ground = true,
-				     bind = AtomValue},
-		{[NewVar|Bindings],NewVar,Counter2};
-	    Value ->
-		{Bindings,Value,Counter}
+				 bind = AtomValue},
+			{[NewVar|Bindings],NewVar,Counter2};
+		    Value ->
+			{Bindings,Value#var{name=VarName},
+			 Counter2}
+		end
 	end,
     Acc = PStruct#parsing_struct.accum,
     pre_parse(Expr, NewBindings,
@@ -372,9 +409,11 @@ wrap_as_variables([Pred = #predicate{%name = Name,
 
 
 
-
+%% Receives a formula and generates a rule
 make_rule({F={formula,_Atom,_Arguments,_Annotations},
 	  eJasonRule,Conditions})->
+%    io:format("Formula for Rule: ~p~n",[F]),
+
     {Bindings,PStruct} =
 	pre_parse([F],[],#parsing_struct{}),
     
@@ -386,7 +425,7 @@ make_rule({F={formula,_Atom,_Arguments,_Annotations},
     
     [Head] = PStruct#parsing_struct.accum,
     Body = PStruct2#parsing_struct.accum,
-    %io:format("Rule: ~p~nBindings: ~p~n",[Head,Bindings2]),
+%    io:format("RuleHead : ~p~nBindings: ~p~n",[Head,Bindings2]),
     #rule{head = Head,
 	  body = Body,
 	  bindings = Bindings2}.
@@ -400,7 +439,6 @@ make_event(EventType, Body) ->
     #event{type = EventType, 
 	   body = Predicate#predicate{bindings=Bindings}}.
        
-
 
 make_plan(Trigger,Context,Body)->
     %io:format("Trigger: ~p~nContext: ~p~nBody: ~p~n",
@@ -435,6 +473,21 @@ make_plan(Trigger,Context,Body)->
 
 
 
+%% Converts an external action into an internal action after finding a dot
+parseInternalAction({no_package},{action, external_action,F}) ->
+    {action,internal_action,"'.'",F};
+parseInternalAction({package,P},{action,external_action,F}) ->
+    {action,internal_action,io_lib:format("~p.",[P]),F};
+parseInternalAction({no_package},A={action,internal_action,_,_}) ->
+    A;%%Duplicated dot
+parseInternalAction({package,P},{action,internal_action,Packages,F}) ->
+   {action,internal_action,io_lib:format("~p'.'~s",[P,Packages]),F}.
+
+
+
+
+
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% PARSING %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -465,15 +518,17 @@ sourceForInitialBelief(Belief=#predicate{}) ->
  
 
 sourceForRules(Rules) ->
-    sourceForRules(Rules,"").
+    sourceForRules(Rules,{1,""}).
 
-sourceForRules([],Acc) ->
+sourceForRules([],{_RULENUMBER,Acc}) ->
     Acc;
-sourceForRules([{{Name,Arity},Rules}|Rest],Acc) ->
+sourceForRules([{{Name,Arity},Rules}|Rest],{RuleNumber, Acc}) ->
+    %io:format("Rules together: ~p~n",[Rules]),
     NumRules = length(Rules),
+    SRulePosition = "_rule"++integer_to_list(RuleNumber)++"_",
     SRuleParams = source_many_vars("RuleParam",Arity),
-    SRuleFunNames = string:join([io_lib:format("fun ~s_init_~p/~p",
-		     [atom_to_list(Name),X,Arity+2])
+    SRuleFunNames = string:join([io_lib:format("fun ~s~sinit_~p/~p",
+		     [atom_to_list(Name),SRulePosition,X,Arity+2])
 		     || X <- lists:seq(1,NumRules)],", "),	     
     
    
@@ -484,16 +539,20 @@ sourceForRules([{{Name,Arity},Rules}|Rest],Acc) ->
 		  [Name,SRuleParams,SRuleFunNames,SRuleParams]),
     SRules =
 	string:join(
-	  [sourceForRule(Rule,Counter) ||
+	  [sourceForRule(Rule,SRulePosition,Counter) ||
 	      {Rule,Counter} <- lists:zip(Rules,lists:seq(1,NumRules))],
 	  "\n"),
-    sourceForRules(Rest,Acc++ SInitFun++SRules).
+    sourceForRules(Rest,{RuleNumber+1,Acc++ SInitFun++SRules}).
 
 
 
-sourceForRule(#rule{head = Head, body = Body, bindings = Bindings},Counter) ->
-    FunName= list_to_atom(atom_to_list((Head#predicate.name)#var.bind)++"_init_"++
-	integer_to_list(Counter)),
+sourceForRule(Rule =
+	      #rule{head = Head, body = Body, bindings = Bindings},
+	      SRulePosition,Counter) ->
+   % io:format("Rule to source: ~p~n",[Rule]),
+    FunName= list_to_atom(atom_to_list((Head#predicate.name)#var.bind)++
+			  SRulePosition++"init_"++ 
+			  integer_to_list(Counter)),
     sourceForInferenceStruct({rule,Bindings},Head,Body,
 			     "Ejason_",[FunName,FunName]).
 
@@ -506,11 +565,11 @@ sourceForInferenceStruct(PLANORRULE,Header, Body,
 	     ArgsPrefix,[HeaderFunName,BodyFunName]) -> 
 
    % FunName = (Header#predicate.name)#var.bind,
- %   io:format("Header: ~p~n",[Header]),
+%   io:format("Header: ~p~n",[Header]),
     Params = tuple_to_list(Header#predicate.arguments),
 	%Header#predicate.annotations,
     PSArgs = args_to_string(Params,ArgsPrefix),
-%    io:format("Params: ~p~n",[Params]),
+ %   io:format("Params: ~p~n",[Params]),
 
     {SArguments,NewParams, NewVariables} =
 	PSArgs#parsing_struct.info,
@@ -521,9 +580,8 @@ sourceForInferenceStruct(PLANORRULE,Header, Body,
 	    {rule,_} ->
 		io_lib:format("~s(BB,Bindings,~s)",[HeaderFunName,SArguments])
 	end,
-    
-
-    
+   
+   
        
    %io:format("Head: ~p~n",[Header]),
    % io:format("Body: ~p~n",[Body]),
@@ -540,24 +598,24 @@ sourceForInferenceStruct(PLANORRULE,Header, Body,
 		SBindings0 ++ source_param_matches(NewParams)
 	end,
     
+    
     SMatchAnnotations =
-	  
 	source_for_annotations(Header#predicate.annotations),
-    	
-
+      
 
    %% Defines which are the params in the header function
     SParamsGroup = 
 	io_lib:format("\tParams = [~s],\n",
 		      [source_many_vars("Param",NumParams)]), 
-%    io:format("SParamsGroup: ~s~n",[SParamsGroup]),
+	%    io:format("SParamsGroup: ~s~n",[SParamsGroup]),
 
 
     PStructBody = source_for_conditions(BodyFunName,Body),
 %    io:format("Info: ~p~n",[PStructBody#parsing_struct.info]),
 
 
-    {FirstFun,_} = PStructBody#parsing_struct.info,
+    {FirstFun,_} = 
+	PStructBody#parsing_struct.info,
 
 
     SIterator = 
@@ -1030,12 +1088,13 @@ generatePlans(Plans) ->
 
 sourceForPlans([],PStruct) ->
     PStruct#parsing_struct{info = lists:reverse(PStruct#parsing_struct.info)};
-sourceForPlans([#plan{trigger = #event{type=Type,body=TBody}, context = Context,
+sourceForPlans([PlanAhora=#plan{trigger = #event{type=Type,body=TBody}, context = Context,
 		      formulas = Formulas, bindings = Bindings}
 		|Plans],#parsing_struct{counter = Counter,
 					accum = Acc,
 					info = Info})->
-    
+%    io:format("PlanAhora: ~p~n",[PlanAhora]),
+
     TypePlanVar = #var{name = 'EjasonEventType',
 		       bind = Type, is_ground=true} ,
 
@@ -1337,9 +1396,9 @@ generateAgentStart(Name)->
     EnvironmentMacro =io_lib:format("-define(Environment,~p).~n",[Name]),
     Start = 
 	io_lib:format(
-	  "start()->~n\tstart(0,~p,?NOTUNIQUE). \n\n"++
+	  "start()->~n\tstart(1,~p,?NOTUNIQUE). \n\n"++
 	  "start(Num) when is_number(Num)->\nstart(Num,~p,?NOTUNIQUE);\n\n"++
-	  "start(Name) when is_atom(Name)->\nstart(0,Name,?UNIQUE).\n\n"++
+	  "start(Name) when is_atom(Name)->\nstart(1,Name,?UNIQUE).\n\n"++
 	  "start(Num,Name,Uniqueness)->~n"
 	  "\tAgName= utils:register_agent(Num,self(),Name,Uniqueness),~n"++
 	  "\tAgent0 = reasoningCycle:"++
@@ -1376,8 +1435,10 @@ parseAgents([Name|Names]) when is_atom(Name)->
 	jasonGrammar:parse(lists:flatten(Tokens)),
     {Beliefs,Rules} = split_beliefs_rules(BelsAndRules),
     SBeliefs = generateInitialBeliefs(Beliefs),
+%      io:format("Rules: ~p~n",[Rules]),
+
     NewRules = group_rules(Rules),
-%    io:format("NewRules: ~p~n",[NewRules]),
+ %   io:format("NewRules: ~p~n",[NewRules]),
     SRules = %string:join(lists:map(fun jasonNewParser:sourceForRule/1,NewRules),%			 " "),
 	sourceForRules(NewRules),
     SInitGoals = generateInitialGoals(InitGoals),

@@ -1,19 +1,18 @@
 contents(beer,4).
 
 
-+!give(Item)[source(Who,Where)] :
++!give(Item)[source(Who[container(Container)])]:
     contents(Item,Stock) & Stock > 0 <-
-    .print("Giving beer to ",Who, " in ", Where);
+    .print("Giving beer to ",Who, " in ", Container);
     NewStock =  Stock + -1;
     -+contents(Item,NewStock); 
     .print("Beers left:  ", NewStock);
+    .send(Who,tell,holding(Item)).
 
-    .send(Who,Where,tell,holding(Item)).
 
-
-+!give(Item)[source(Who,Where)] :
++!give(Item)[source(Who)] :
     contents(Item,Stock) & Stock < 1 <-
-    .send(Who,Where,tell,no_more(Item)).
+    .send(Who,tell,no_more(Item)).
 
 
 
