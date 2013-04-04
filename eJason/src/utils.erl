@@ -35,6 +35,7 @@
 -include("parser.hrl").
 -include("variables.hrl").
 -include("macros.hrl").
+-include("suspendedActionsRecords.hrl").
 
 
 
@@ -71,7 +72,7 @@ unify_vars({Atom,Params,Label},Val,VarNames)->
     {Atom,NewParams,Label}.    
 
 
-
+%% TODO: remove useless parameters
 add_belief(_,Belief) ->
  %   io:format("O: ~p~nBelief: ~p~n",[O,Belief]),
     #event{type = ?ADDBELIEF,
@@ -82,8 +83,6 @@ remove_belief(_,Belief)->
     %io:format("UTILS: Remove Belief: ~p~n",[Belief]),
      #event{type = ?REMOVEBELIEF,
 	   body = Belief}.
-
-
 
 
 remove_add_belief(_,Belief)->
@@ -122,8 +121,6 @@ add_test_goal(_,Goal)->
 %% private information from the erlang runtime 
 add_ejason_private_query(Query)->
     {add_ejason_private_query, Query}.
-
-
 
 
 
@@ -231,31 +228,6 @@ replace(ValTuple,BindingTuple,[{ValPos,BindingPos}|Replacements])->
     replace(NewValTuple,BindingTuple,Replacements).
 
 
-%% %% Each time a set of params is received,
-%% %% it returns all matching possibilities
-%% rulesLoop(Rule)->
-%%     %io:format("~p waiting in RulesLoop~n",[self()]),
-%%     receive 
-%% 	{getAllRes,Params,Peer}->
-%% 	    try
-%% 	%io:format("Params RuleLoop: ~p~n",[Params]),
-%% 		Res = apply(Rule,erlang:tuple_to_list(Params)),
-%% 	%io:format("RUlesloop-> Res: ~p for Params: ~p~n",[Res,Params]),
-%% 		Peer ! {res,Res}
-%% 	    catch
-%% 		error:Reason ->
-%% 		    %io:format("ERROR IN RULESLOOP~n"),
-%% 		    Peer ! {res,[]},
-%% 		    {'EXIT in Rule pred', {Reason, erlang:get_stacktrace()}}
-%% 	    after
-%% 		rulesLoop(Rule)
-%% 	    end;
-%% 	stop ->
-%% 	    %io:format("Terminado ~p~n",[self()]),
-%% 	    ok
-%%      end.
-
-
 initialValuation([],_Atom,Params,NumberOfUndefined)->
     %io:format("Params Initval: ~p~n",[Params]),
     List = lists:append(Params,
@@ -269,13 +241,16 @@ initialValuation([Result|Results],Atom,Params,NumberOfUndefined) ->
 	[NewParams|
 	 initialValuation(Results,Atom,Params,NumberOfUndefined)]
     catch
-	error:Reason->
+	error:_Reason->
 	    H = erlang:element(1,Result),
 %	    io:format("~p:~n~p does not match ~p in ~p~n",
 %		      [Reason,Atom,H,Result]),
 	    initialValuation(Results,Atom,Params,
 			     NumberOfUndefined)
     end.
+
+
+
 	
 getVarsFromResults([],Acc)->
     Acc;
@@ -502,19 +477,53 @@ replacePositionInList(List,N,_NewElement) when N < 1->
     List.
 
 
-internal_action(Module, InAc = {#var{bind = ActName},Args,Annot}) ->
-%    io:format("InternalAction: ~p ~n",[InAc]),
+
+%% TODO: study applicability of annotations in external actions
+external_action(EnvironmentName,ExAc = {#var{bind = ActName},Args,Annot})->
+    Fun = fun (X) ->
+		  case binds_for_vars(X) of
+		      {Value,{},[]}->
+			  Value;
+		      Other->
+			  Other
+		  end
+	  end,	  
     
-  %  io:format("Action: ~p ~n~p~n",[Args,size(Args)]),
+    Params = lists:map(Fun, tuple_to_list(Args)),
+    %Annotations = list_to_tuple(lists:map(Fun, Annot)),
+    TimeStamp = erlang:now(), % Will serve as identifier for the 
+                               % response message
+    
+ %   Annotations = lists:map(Fun,Annots),
+   
+%    io:format("[utils] EX Ac Params: ~p~n",[Params]),
+   % io:format("Action: ~p:~p~n",[EnvironmentName,ActName]),
+    ExecutingProcess = 
+	spawn(environment_handler,
+	      execute,
+	      [EnvironmentName,
+	       ActName,Params,Annot,self(),TimeStamp]),%% Continue
+    {suspend,ExecutingProcess,TimeStamp}.
+
+
+
+internal_action(Package, InAc = {#var{bind = ActName},Args,Annot}) ->
+   % io:format("Package: ~p~n",[Package]),
+   % io:format("InternalAction: ~p ~n",[InAc]),
+    
+ %   io:format("Action: ~p ~n~p~n",[Args,size(Args)]),
     Fun = fun (X) ->
 		  binds_for_vars(X) end,	  
 		  
     Params = list_to_tuple(lists:map(Fun, tuple_to_list(Args))),
  %  io:format("[utils] InAc Params: ~p~n",[Params]),
-    execute(Module,Module,'.',{ActName,Params,Annot}).
+    %*****
+    execute(Package,Package,Package,{ActName,Params,Annot}).
 
 %% TODO: rename
 %% 
+%% Returns the binding of a variable if it is bound. 
+%% Returns the variable otherwise
 binds_for_vars([])->
     [];
 binds_for_vars(Var = #var{bind = ?UNBOUNDVAR})->
@@ -534,36 +543,51 @@ binds_for_vars(List) when is_list(List)->
 
 
 
+%% TODO: make different cases for execute/4 (normally fewer params are needed)
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% INTERNAL ACTIONS
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+
 %% SEND a message to some other agent
-execute(Name, _Module,'.',{send,{Receiver,
+execute(_Name, _Module,'.',{send,{Receiver,
 				 {Intention,{},[]},Message},_})->
 
 %% Receiver can be an agent's name or a structure  AgentName[Container]
 %io:format("Receiver: ~p~n",[Receiver]),
-    ReceiverID = case  Receiver of
-	       Receiver when is_atom(Receiver) ->
-		   Receiver;
-	       Pid when is_pid(Pid)->
-		  Pid; 
-               {RecvName,{},[{container,{RecvContainer},_}]}->
-			 RName = case RecvName of
-				     _ when is_atom(RecvName)->
-					 RecvName;
-				     {AtomRecv,{},[]} ->
-					 AtomRecv
-				 end,
-			 RContainer = case RecvContainer of
-					_ when is_atom(RecvContainer)->
-					      RecvContainer;
-					  {AtomContainer,{},[]} ->
-					      AtomContainer
-				      end,
-			{RName,RContainer};		  
-	       {Atom,{},[]} ->
-		   Atom
-	   end,
+    {AgentName,Container} = 
+	case  Receiver of
+	    Receiver when is_atom(Receiver) ->
+		{Receiver,node()};
+	      % Pid when is_pid(Pid)->
+	%	  Pid; 
+	    {RecvName,{},[{container,{RecvContainer},_}]}->
+		RName = case RecvName of
+			    _ when is_atom(RecvName)->
+				RecvName;
+			    {AtomRecv,{},[]} ->
+				AtomRecv
+			end,
+		RContainer = case RecvContainer of
+				 _ when is_atom(RecvContainer)->
+				     RecvContainer;
+				 {AtomContainer,{},[]} ->
+				     AtomContainer
+			     end,
+		{RName,RContainer};		  
+	    {Atom,{},[]} ->
+		{Atom,node()}
+	end,
 
-    NewIntention =
+    NewIntention = % performative
 	case Intention of
 	       _ when is_atom(Intention) ->
 		   Intention;
@@ -571,160 +595,167 @@ execute(Name, _Module,'.',{send,{Receiver,
 		   AtomInt
 	   end,
 
-%    io:format("~p receiver is: {~p,~p}~n",[erlang:now(),ReceiverID,node()]),
+    %io:format("~p receiver is: {~p,~p}~n",[erlang:now(),ReceiverID,node()]),
 
-    %io:format("{Intention,Message} is: {~p,~p}~n",[NewIntention,Message]), 
+    %io:format("{Intention,Message} is: {~p,~p}~n",[NewIntention,Message]
     
     case process_info(self(),registered_name) of
 	    {registered_name,MyName}->
-		MyName,
-		try
-
-%		    io:format("Send ~p at: ~p~n",[Message,erlang:now()]),
-		    ReceiverID ! 
-		    {communication,MyName,node(),{NewIntention,Message}}
-		catch
-		    _:_ -> % Send does not fail
-			ok
-		end,
-		{stutter_action};
+	    FindAgentID = ?DM:find_agent(AgentName),
+	    ID = {?DM,FindAgentID},
+	    SuspendedAction = 
+		#suspendedSend{
+	      my_name = MyName,
+	      performative = NewIntention,
+	      message = Message
+	     },
+	    {?ACTIONSUSPEND,ID,SuspendedAction};
+	    	   
 	    _ ->
 		io:format("[Utils] Unregistered Agent sends~n"),
-		{fail}
+	        exit(not_registered_agent),
+		{?FAIL}
 	end;
 
-%%% OLD SEND WITH CONTAINER AS EXTRA PARAMETER
-%execute(Name, _Module,'.',{send,{Receiver,
-%				 Arch,
-%				 {Intention,{},[]},
-%				 Message},_})->
-%io:format("Receiver2: ~p~n",[Receiver]),
 
- %   RegName = case Receiver of
-%	       Receiver when is_atom(Receiver) ->
-%		   Receiver;
-%	       Pid when is_pid(Pid)->
-%		  Pid; 
-%	       {Atom,{},[]} ->
-%		   Atom
-%	   end,
- %   NewIntention =
-%	case Intention of
-%	       _ when is_atom(Intention) ->
-%		   Intention;
-%	       {AtomInt,{},[]} ->
-%		   AtomInt
-%	   end,
- %   Node =
-%	case Arch of
-%	    _ when is_atom(Arch) ->
-%		Arch;
-%	    {AtomNode,{},[]} ->
-%		AtomNode
-%	end,
-  
- 
 
-  %  io:format("~p receiver is: {~p,~p}~n",[erlang:now(),RegName,Node]),
-   % io:format("My Name is: ~p self: ~p, reg: ~p~n",[Name, self(),
-%						   whereis(Name)]),
- 
- %   case process_info(self(),registered_name) of
-%	    {registered_name,MyName}->
-%		MyName,
-%		try
-%		{RegName,Node} ! 
-%		    {communication,MyName,node(),{NewIntention,Message}}
-%		catch
-%	    _:_ -> % Send does not fail
-%			ok
-%		end,
-%		{stutter_action};
-%	    _ ->
-%		io:format("[Utils] Unregistered Agent sends~n"),
-%		{fail}
-%	end;
+
+
+
+%% Connect to a container
+execute(Name, _Module,'.',{connect,{Container},_Label})->
+    ContainerName = 
+	case Container of
+	    _ when is_atom(Container) ->
+		Container;
+	    {ContainerAtom,{},[]} ->
+		ContainerAtom
+	end,
+    %io:format("[~p]connection requested ~n",[self()]),
+    ConnectID =
+	?DM:connect(ContainerName),
+    ID = {?DM,ConnectID},
+    SuspendedAction = 
+	#suspendedConnect{
+      container = ContainerName
+     },
+    {?ACTIONSUSPEND,ID,SuspendedAction};
+	    
+
+    %% case Return of
+    %% 	{?STUTTERACTION} ->
+    %% 	    io:format("Connected to ~p~n",[ContainerName]);
+    %% 	_ ->
+    %% 	    ok
+    %% end,
+         
+    %% Return;
+
+
+%% Disconnect from a container
+execute(Name, _Module,'.',{disconnect,{Container},_Label})->
+    ContainerName = 
+	case Container of
+	    _ when is_atom(Container) ->
+		Container;
+	    {ContainerAtom,{},[]} ->
+		ContainerAtom
+	end,
+    %io:format("[~p]connection requested ~n",[self()]),
+
+    DisconnectID =
+	?DM:disconnect(ContainerName),
+    ID = {?DM,DisconnectID},
+    SuspendedAction = 
+	#suspendedDisconnect{
+      container = ContainerName
+     },
+    {?ACTIONSUSPEND,ID,SuspendedAction};
+
+%% MAKE THE PLAN FAIL
+execute(_Name, _Module,'.',{fail,_PARAMS,_Label})->
+    {?FAIL};
+
 
 %% CREATE a new agent
+%% execute(Name, Module,'.',{create_agent,{AName,
+%% 					 ParamCode},Label})->
+%%     execute(Name, Module, '.', {create_agent,
+%% 				{AName,node(,
+%% 				 ParamCode,[]},Label});	
+
+
 execute(Name, Module,'.',{create_agent,{AName,
 					 ParamCode},Label})->
     execute(Name, Module, '.', {create_agent,
-				{AName,node(),
+				{AName,
 				 ParamCode,[]},Label});	
 
-%  AgentName = 
-%		case AName of
-%		    _ when is_atom(AName) ->
-%			AName;
-%		    {AtomName,{},[]} ->
-%			AtomName
-%		end,
- %   Code = case ParamCode of
-%	        _ when is_atom(ParamCode) ->
-%			ParamCode;
-%		    {AtomCode,{},[]} ->
-%			AtomCode
-%		end,
-%   spawn(Code,start,[AgentName]),
-%     {stutter_action};
-
-execute(Name, Module,'.',{create_agent,{AName,Node,ParamCode},Label})
-  when is_list(ParamCode), is_atom(Node)->
-    execute(Name, Module, '.', {create_agent,
-				{AName,Node,
-				 ParamCode,[]},Label});
-
-execute(Name, Module,'.',{create_agent,{AName,ParamCode,Custom},Label})
-  when is_atom(ParamCode), is_list(Custom)->
-
-    execute(Name, Module, '.', {create_agent,
-				{AName,node(),
-				 ParamCode,Custom},Label});
-			 
-execute(Name, _Module,'.',{create_agent,New = {AName,InputNode,ParamCode,_Custom},Label})->
-%    io:format("New: ~p~n",[New]),
-    AgentName = 
+execute(_Name, _Module,'.',{create_agent,{AName,ParamCode,_Custom},_Label})->
+%    io:format("AName: ~p~n",[AName]),
+    {AgentName,Node} = 
 		case AName of
 		    _ when is_atom(AName) ->
-			AName;
+			{AName,node()};
 		    {AtomName,{},[]} ->
-			AtomName
+			{AtomName,node()};
+		    {AtomName,{},[{container,{ContainerName},_}]} ->
+			%io:format("ContainerName: ~p~n",
+			%	  [ContainerName]),
+			    case ContainerName of
+				_ when is_atom(ContainerName) ->
+				    {AtomName,ContainerName};
+				{AtomContainer,{},[]} ->
+				    {AtomName,AtomContainer}
+			    end
 		end,
-  %    io:format("utils2~p~n",[ParamCode]),
-
+   %   io:format("ParamCode: ~p~n",[ParamCode]),
+% io:format("InputNode: ~p~n",[InputNode]),
+ %io:format("New2!!~n~n"),
   Code = 
 	case ParamCode of
 	    _ when is_list(ParamCode) ->
 		list_to_atom(string:sub_string(ParamCode,1, 
 					       length(ParamCode) -4));
+	    {AtomCode,{},[]} when is_atom(AtomCode) ->
+		AtomCode;
 	    {StringCode,{},[]} when is_list(StringCode)->
 		list_to_atom(string:sub_string(StringCode,1, 
 					       length(StringCode) -4));
 	    _ when is_atom(ParamCode) ->
 		ParamCode	    
 	end,
- %   io:format("utils3. ~p~n",[InputNode]),
-
-    Node =
-	case InputNode of
-	    _ when is_atom(InputNode) ->
-		InputNode;
-	    {AtomNode,{},[]} ->
-		AtomNode
-	end,
-    
-%  io:format(" spawn(~p,~p,start,[~p])~n",[Node,Code,AgentName]),
 
 %% TODO: check whether code can be found!!
-    spawn(Node,Code,start,[AgentName]),
-     {stutter_action};
+ 
 
+   CreateID =
+	?DM:create_agent(AgentName,Node,Code),
+     ID = {?DM,CreateID},
+    SuspendedAction = 
+	#suspendedCreateAgent{
+      agent_name = AgentName,
+      container = Node,
+      code = Code
+     },
+    {?ACTIONSUSPEND,ID,SuspendedAction};
+ 
+   	
+    %% 	case Return of
+    %% 	    {?STUTTERACTION} ->
+    %% 		io:format("Agent ~p created.~n",[AgentName]);
+    %% 	    _ ->
+    %% 		io:format("Agent ~p not created.~n",[AgentName])
+    %% 	end,
+    %% Return;
+
+%*****
 
 
 
 %% PRINT some string in the standard output
 execute(_Name,_module,'.',{print,String,_})-> 
-%    io:format("IMPRIMIENDO ~p~n",[String]),
+   % io:format("IMPRIMIENDO ~p~n",[String]),
     NewString =     print_list(tuple_to_list(String)),
     MyName = case process_info(self(),registered_name) of
 		 [] ->
@@ -734,71 +765,135 @@ execute(_Name,_module,'.',{print,String,_})->
 		 {registered_name,AgentName}->
 		     AgentName
 	     end,
-%    io:format("[~p:~p]: ~s",[Name,node(),NewString]),
-    io:format("[~p]: ~s",[MyName,NewString]),
+%     io:format("[~p:~p]: ~p~n",[MyName,node(),NewString]),
+   io:format("[~p]: ~s",[MyName,NewString]),
 %    io:format("[~p,~p]: ~s",[Name,erlang:now(),NewString]),
 
-   {stutter_action};
+   {?STUTTERACTION};
+
+execute(_Name,_Module,'.', {to_string,{Value,Var},_}) when is_record(Var,var)->
+    try
+      String = 
+	case Value of
+	    _ when is_atom(Value)->
+		atom_to_list(Value);
+	    _ when is_float(Value) ->
+		float_to_list(Value);
+	    _ when is_integer(Value)->
+		integer_to_list(Value);
+	    _ when is_boolean(Value)->
+		if 
+		    Value ->
+			"true";
+		    true ->
+			"false"
+		end;
+	    _ when is_list(Value)->
+		true = is_string(Value), 
+		Value
+	end,
+		    
+	{update_bindings,[Var#var{bind = String}]}
+
+    catch
+	_:_->
+	    {fail}
+    end;  
+
+execute(_Name,_Module,'.', {to_number,{Value,Var},_}) when is_record(Var,var)->
+    try
+      Number = 
+	case Value of
+	    _ when is_list(Value)->
+		try
+		    list_to_integer(Value)
+		catch
+		    _:_->
+			list_to_float(Value)
+		end;
+	    _ when is_float(Value)->
+		Value;
+	    _ when is_integer(Value)->
+		Value	    
+	end,
+	{update_bindings,[Var#var{bind = Number}]}
+
+    catch
+	_:_->
+	    {fail}
+    end;  
+
+
 
 %% KILL another agent (the process running it)
 execute(Name,_Module,'.',{kill_agent,{AName},_Annot}) ->
    
 %% AName can be an agent's name or a structure AgentName[Container]
 %    io:format("Killing: ~p~n",[AName]),
-
-    case AName of
-	_ when is_atom(AName) ->
-	   case whereis(AName) of
-		Pid when is_pid(Pid) ->
-		    exit(Pid,kill) ;
-		_->
-		    ok
-	    end;
-	{AtomName,{},[]} ->
-	    case whereis(AtomName) of
-		Pid when is_pid(Pid) ->
-		    exit(Pid,kill) ;
-		_->
-		    ok
-	    end;
-	{RegName,{},[{container,{Container},_}]}->
-	    execute(Name,"",'.',{kill_agent,{RegName,Container},[]})  
-    end,
-    {stutter_action};
-execute(Name,_Module,'.',{kill_agent,{AName,
-				      Container},_Annot}) ->
-
-%    io:format("Killing: ~p in ~p~n",[AName,Container]),
-
     AgentName = 
-		case AName of
-		    _ when is_atom(AName) ->
-			AName;
-		    {AtomName,{},[]} ->
-			AtomName
-		end,
+	case AName of
+	    _ when is_atom(AName) ->
+		AName;
 
-
-    Node =
-	case Container of
-	    _ when is_atom(Container) ->
-		Container;
-	    {AtomNode,{},[]} ->
-		AtomNode
-	end,
-
-
-    Mypid = self(), 
-    Fun = fun () -> W = whereis(AgentName), Mypid ! {pid_request,W} end,
-    spawn(Node,Fun),
-    receive 
-	{pid_request,PidToKill} ->
-	    exit(PidToKill,kill)
-    after 
-	1000 ->
-	ok
+	    %% case whereis(AName) of
+	   %% 	Pid when is_pid(Pid) ->
+	   %% 	    exit(Pid,kill) ;
+	   %% 	_->
+	   %% 	    ok
+	   %%  end;
+	{AtomName,{},[]} ->
+	   AtomName
+		%% case whereis(AtomName) of
+	    %% 	Pid when is_pid(Pid) ->
+	    %% 	    exit(Pid,kill) ;
+	    %% 	_->
+	    %% 	    ok
+    
     end,
-    {stutter_action};
+    KillID = ?DM:find_agent(AgentName),
+    ID = {?DM,KillID},
+    SuspendedAction = 
+	#suspendedKillAgent{
+      agent_name = AgentName},
+    {?ACTIONSUSPEND,ID,SuspendedAction};
+
+%% execute(_Name,_Module,'.',{kill_agent,{AName,
+%% 				      Container},_Annot}) ->
+
+%% %    io:format("Killing: ~p in ~p~n",[AName,Container]),
+
+%%     AgentName = 
+%% 		case AName of
+%% 		    _ when is_atom(AName) ->
+%% 			AName;
+%% 		    {AtomName,{},[]} ->
+%% 			AtomName
+%% 		end,
+
+
+%%     Node =
+%% 	case Container of
+%% 	    _ when is_atom(Container) ->
+%% 		Container;
+%% 	    {AtomNode,{},[]} ->
+%% 		AtomNode
+%% 	end,
+
+
+%%     Mypid = self(), 
+%%     Fun = fun () -> W = whereis(AgentName), Mypid ! {pid_request,W} end,
+%%     spawn(Node,Fun),
+%%     receive 
+%% 	{pid_request,PidToKill} ->
+%% 	    exit(PidToKill,kill)
+%%     after 
+%% 	1000 ->
+%% 	ok
+%%     end,
+%%     {?STUTTERACTION};
+
+
+
 %% WAIT: agent sleeps during WaitTime milliseconds
 
 execute(Name,_Module,'.',{wait,{WaitTime},_Annot}) ->
@@ -808,11 +903,11 @@ execute(Name,_Module,'.',{wait,{WaitTime},_Annot}) ->
 	
 	_ when is_integer(WaitTime) ->
 	    timer:sleep(WaitTime),
-	    {stutter_action};
+	    {?STUTTERACTION};
 	
 	{Time,{},[]} when is_integer(Time)->
 	    timer:sleep(Time),
-	    {stutter_action};	
+	    {?STUTTERACTION};	
 	_->
 	    {fail, io_lib:format("WaitTime in .wait is: ~p",[WaitTime])}
     end;
@@ -822,78 +917,131 @@ execute(Name,_Module,'.',{wait,{WaitTime},_Annot}) ->
 
 execute(Name,_Module,'.',{monitor,{AID},_Annot}) ->
  
-%	io:format("~p monitors ~p ~n",[self(), AID]),
-    case  AID of
-%	Pid when is_pid(Pid) ->
+    try 
+	RegName = 
+	case  AID of
+	   	%	Pid when is_pid(Pid) ->
 %	    monitor(process,Pid),
-%	    {stutter_action};
+%	    {?STUTTERACTION};
 	
-
+	     
+ 
+	    _ when is_atom(AID) ->
+	       %  monitor(process,RegName),
+		AID;
+	    %monitor(process,{RegName,node()}),
+	    %{?STUTTERACTION};
+	    {#var{bind = SomeName},_,_}->
+		   SomeName;
 	    
 
-	
-	RegName when is_atom(RegName) ->
-	  %  monitor(process,RegName),
-	    
-	    monitor(process,{RegName,node()}),
-	    {stutter_action};
 
-	{RegName,{},[]} when is_atom(RegName)->
-%	    monitor(process,RegName),
+	    {AtomName,{},[]} when is_atom(AtomName)->
+	      %	    monitor(process,RegName),
+		AtomName
+	end,
+    {_,MyName} = process_info(self(),registered_name),
+
+%io:format("~p monitors ~p ~n",[MyName, RegName]),
+
+    ?SM:monitor(MyName, RegName)
+    catch
+	_:_ ->
+	    {?FAIL}
+    end;
 
 %	    io:format("~p monitors ~p (~p) ~p~n",[self(), RegName, 
 %						  whereis(RegName), 
 %						  monitor(process,RegName)]),
-    	    monitor(process,{RegName,node()}),
+    	    %monitor(process,{RegName,node()}),
 
-	    {stutter_action};	
+%	    {?STUTTERACTION};	
 
-	{RegName,{},[{container,{Container},_}]}->
-	    execute(Name,"",'.',{monitor,{RegName,Container},[]});  
-%    	    monitor(process,{RegName,node()}),
+%% 		  {RegName,{},[{container,{Container},_}]}->
+%% 	    execute(Name,"",'.',{monitor,{RegName,Container},[]});  
+%% %    	    monitor(process,{RegName,node()}),
 
 
 
-%	    {stutter_action};
-	_->
-	    {fail}
-   end;
-execute(Name,_Module,'.',{monitor,{AName,
-				   Arch},_Annot}) ->
+%	    {?STUTTERACTION};
+	%_->
+	%    {?FAIL}
 
-   RegName = case AName of
-	       _ when is_atom(AName) ->
-		   AName;
-	       {AtomName,{},[]} when is_atom(AtomName)->
-		   AtomName
-	   end,
 
-    Node =
-	case Arch of
-	    _ when is_atom(Arch) ->
-		Arch;
-	    {AtomNode,{},[]} ->
-		AtomNode
-	end,
+%% execute(Name,_Module,'.',{monitor,{AName,
+%% 				   Arch},_Annot}) ->
+
+%%    RegName = case AName of
+%% 	       _ when is_atom(AName) ->
+%% 		   AName;
+%% 	       {AtomName,{},[]} when is_atom(AtomName)->
+%% 		   AtomName
+%% 	   end,
+
+%%     Node =
+%% 	case Arch of
+%% 	    _ when is_atom(Arch) ->
+%% 		Arch;
+%% 	    {AtomNode,{},[]} ->
+%% 		AtomNode
+%% 	end,
     
     
-    case {RegName,Node} of
-	AID when is_atom(RegName), is_atom(Node) ->
-	    monitor(process,AID),
-	    {stutter_action};
+%%     case {RegName,Node} of
+%% 	AID when is_atom(RegName), is_atom(Node) ->
+%% 	    monitor(process,AID),
+%% 	    {?STUTTERACTION};
 	
-	_->
-	    {fail}
+%% 	_->
+%% 	    {?FAIL}
+%%     end;
+
+
+%% DEMONITOR another agent (the process running it)
+
+execute(Name,_Module,'.',{demonitor,{AID},_Annot}) ->
+ 
+    try 
+	RegName = 
+	case  AID of
+	    _ when is_atom(AID) ->
+	       %  monitor(process,RegName),
+		AID;
+
+	    {#var{bind = SomeName},_,_}->
+		   SomeName;
+	    
+
+
+	    {AtomName,{},[]} when is_atom(AtomName)->
+	      %	    monitor(process,RegName),
+		AtomName
+	end,
+    {_,MyName} = process_info(self(),registered_name),
+
+%io:format("~p demonitors ~p ~n",[MyName, RegName]),
+
+    ?SM:demonitor(MyName, RegName)
+    catch
+	_:_ ->
+	    {?FAIL}
     end;
 
-  
+
+
 %% GET AID by returning the pid of the erlang process running it
-execute(Name,_Module,'.',NameQuery = {my_name,{Variable},_Annot}) when 
-  is_record(Variable,var)->
+execute(_Name,_Module,'.',NameQuery = {my_name,{Variable},_Annot}) -> %when   is_record(Variable,var)->
+
     add_ejason_private_query(NameQuery);
 
+
 %% GET Architecture name by returning the name of the node the agent runs on
-execute(Name,_Module,'.',ArchQuery = {my_container,{Variable},_Annot}) when 
+execute(_Name,_Module,'.',ArchQuery = {my_container,{Variable},_Annot}) when 
+  is_record(Variable,var)->
+    add_ejason_private_query(ArchQuery);
+
+%% GET The environment file that interfaces to the set of external actions
+execute(Name,_Module,'.',ArchQuery = {my_environment,{Variable},_Annot}) when 
   is_record(Variable,var)->
     add_ejason_private_query(ArchQuery);
 
@@ -901,8 +1049,17 @@ execute(_Name,_Module,'.',Action) ->
     io:format("Undefined internal action: ~p~n",[Action]),
     {fail};
 execute(_Name,_Module,Package,Action) ->
-    io:format("Undefined Action: ~p in Package ~p~n",[Action,Package]),
-    {fail}.
+   % io:format("Undefined Action: ~p in Package ~p~n",[Action,Package]),
+    case 
+	environment_handler:execute_internal(Package,Action) of
+	{fail} ->
+	    {fail};
+	{ok,NewBindings} ->
+	    {update_bindings,NewBindings}
+    end.
+
+
+
 
 print_list([])->
     "\n";
@@ -920,16 +1077,30 @@ print_elem({PName,PArgs,PAnnot}) when is_tuple(PArgs),
  %     [PName,PArgs,PAnnot]),
     Fun = fun (X) ->
 		  print_elem(X) end,
-    case PArgs of
-	{}->
-	       io_lib:format("~s",
-		  [print_elem(PName)]);
-	_ ->
-	    io_lib:format("~s(~s)",
-			  [print_elem(PName),
+    SName = print_elem(PName),
+    SPred=
+	case PArgs of
+	    {}->
+		io_lib:format("~s",
+			      [SName]);
+	    _ ->
+		io_lib:format("~s(~s)",
+			  [SName,
 			   string:join(
 			     lists:map(Fun,tuple_to_list(PArgs)),", ")])
+	end,
+    case PAnnot of
+	[]->
+	       SPred;
+	_ ->
+	    io_lib:format("~s[~s]",
+			  [SPred,
+			   string:join(
+			     lists:map(Fun,PAnnot),", ")])
     end;
+
+print_elem(#var{bind = {}, name = Name})->% Unbound var
+    atom_to_list(Name) ++ "<no value>";
 print_elem(Else) ->
 %  io:format("Else: ~p~n",[Else]),
    String = if
@@ -938,19 +1109,30 @@ print_elem(Else) ->
 		is_atom(Else)->
 		    atom_to_list(Else);
 		is_list(Else) ->
-		    Else;
+		    case is_string(Else) of
+			true->
+			    Else;
+			false ->
+			    string:join(lists:map(fun print_elem/1 ,Else),"")
+		    end;
 		is_pid(Else)->
 		    pid_to_list(Else);
 		is_record(Else,var)->
 		    print_elem(Else#var.bind);
-	       
 		true->
 		    io:format("[Utils] Error in to_string(~p)\n",[Else]),
 		    exit(error_in_utils)
 	    end,
     String.
-		  
 
+%% Boolean function that returns true if the term given is a list of
+%% integers.
+is_string([])->		  
+    true;
+is_string([Int|Rest]) when is_integer(Int)->
+    is_string(Rest);
+is_string(_) ->
+    false.
 
 
 %% ;
@@ -959,31 +1141,32 @@ print_elem(Else) ->
 %%     io:format("[~p]: ~p~n",[Name,String]).
 
 
-register_agent(OrderNum,Pid,Name,Uniqueness)->
-%   io:format("Name: ~p~nNum: ~p~n",[Name,OrderNum]),
-    NewName = case(OrderNum) of
-		  1 ->
-		      Name;
-		  _ ->
-		      erlang:list_to_atom(
-			lists:flatten(
-			  io_lib:format("~p_~p",[Name,OrderNum])))
-	      end,
-    case whereis(NewName) of
-	undefined->
-	    register(NewName,Pid),
-	    NewName;
-	_ ->
-	    case Uniqueness of
-		?UNIQUE ->
-		    exit(already_existing_agent);
-		?NOTUNIQUE->
-		    %NewName = erlang:list_to_atom(
-		%		lists:flatten(
-		%		  io_lib:format("~p_~p",[Name,OrderNum]))),
-		    utils:register_agent(OrderNum+1,Pid,Name,Uniqueness)
-	    end
-    end.
+%% register_agent(OrderNum,Pid,Name,Uniqueness)->
+%% %   io:format("Name: ~p~nNum: ~p~n",[Name,OrderNum]),
+%%     NewName = case(OrderNum) of
+%% 		  1 ->
+%% 		      Name;
+%% 		  _ ->
+%% 		      erlang:list_to_atom(
+%% 			lists:flatten(
+%% 			  io_lib:format("~p_~p",[Name,OrderNum])))
+%% 	      end,
+%%     case whereis(NewName) of
+%% 	undefined->
+%% 	    register(NewName,Pid),
+%% 	    NewName;
+%% 	_ ->
+%% 	    case Uniqueness of
+%% 		?UNIQUE ->
+%% 		    NewName;
+%% 		    %exit(already_existing_agent);
+%% 		?NOTUNIQUE->
+%% 		    %NewName = erlang:list_to_atom(
+%% 		%		lists:flatten(
+%% 		%		  io_lib:format("~p_~p",[Name,OrderNum]))),
+%% 		    utils:register_agent(OrderNum+1,Pid,Name,Uniqueness)
+%% 	    end
+%%     end.
 	    
 
 killAgent([])->
@@ -1213,7 +1396,7 @@ elem_to_var(Elem) ->
 
 
 %% Turns a predicate into a three-element tuple with
-%% vars in EACH position
+%% timestamps in EACH position
 
 predicate_to_timestamp_tuple(#predicate{name = Name,
 					arguments = Args,
@@ -1288,6 +1471,7 @@ rel_le(#var{bind = Bind1},#var{bind = Bind2})->
     Bind1 =< Bind2.
 
 rel_gt(#var{bind = Bind1},#var{bind = Bind2})->
+    %io:format("Bind1: ~p~nBind2: ~p~n",[Bind1,Bind2]),
     Bind1 > Bind2.
 
 rel_eq(#var{bind = Bind1},#var{bind = Bind2})->
@@ -1298,13 +1482,12 @@ rel_diff(#var{bind = Bind1},#var{bind = Bind2})->
 
 rel_assig(Var1,#var{bind = Bind2})->
     Var1#var{bind = Bind2};
-rel_assig([Var1],[BO= #binary_operation{operator = OP,
+rel_assig(Var1,BO= #binary_operation{operator = OP,
 				left_part = [Left],
-				right_part = [Right]}]) ->
-  %  io:format("Var1: ~p~nBO: ~p~n",[Var1,BO]),
+				right_part = [Right]}) ->
+ %  io:format("Var1: ~p~nBO: ~p~n",[Var1,BO]),
     Var1#var{bind = utils:OP(Left,Right)}.
-
-    
+ 
 
 
 rel_decomp({Name,Args,Annot})->

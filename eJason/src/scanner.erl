@@ -44,6 +44,7 @@ scan(Inport, Prompt, Line1) ->
 lex([]) ->
     [];
 lex([Token | Tokens]) ->
+%    io:format("Token: ~p~n",[Token]),
     case Token of
 	{'fun',Line} ->
 	    [{atom,Line,'fun'}|lex(Tokens)];
@@ -80,8 +81,18 @@ lex([Token | Tokens]) ->
 	    case Tokens of
 		[{'==',_Line2}|MoreTokens] ->
 		    [{'\\==', Line}|lex(MoreTokens)];
+		
 		_ ->
 		    [{'\\', Line} | lex(Tokens)]
+	    end;
+	{'/',Line}->
+	    case Tokens of
+		[{'/',Line}|MoreTokens]->
+		    lex(skipLine(Line,MoreTokens));
+		[{'*',Line}|MoreTokens]->
+		    lex(skipSome(MoreTokens));
+		_ ->
+		    [{'/',Line}|lex(Tokens)]
 	    end;
 	{'*', Line} ->
 	    case Tokens of
@@ -128,3 +139,23 @@ lex([Token | Tokens]) ->
             %%       end,
             [{Other, Line} | lex(Tokens)]
     end.
+
+
+%% Line skipped due to comments symbol
+skipLine(Line,[{_,Line}|MoreTokens]) ->
+    skipLine(Line,MoreTokens);
+skipLine(Line,[{_,Line,_}|MoreTokens]) ->
+    skipLine(Line,MoreTokens);
+skipLine(_Line,MoreTokens) ->
+    MoreTokens.
+
+
+%% Skipping several elements between symbos '/*' '*/'
+
+skipSome([])->
+    [];
+skipSome([{'*',Line},{'/',Line}|MoreTokens])->
+    MoreTokens;
+skipSome([_Token|MoreTokens]) ->
+    %io:format("More: ~p~n",[MoreTokens]),
+    skipSome(MoreTokens).

@@ -8,8 +8,8 @@
 
 
 -record(predicate, {name, % Name is a variable to allow higher order
-		    arguments = {},% list of var records
-		    annotations = [],
+		    arguments = {},%tuple of var records
+		    annotations = [], % List of variables
 		    is_ground = false,
 		    bindings =[], %% TODO: erase
 		    unbound_vars = [] }).
@@ -47,5 +47,6 @@
 	  
 
 
--record(event, {type, body = {}, 
-		relatedIntention=undefined}).
+-record(event, {type, % ADDACHGOAL, ADDTESTGOAL... 
+		body = {}, %{PlanName, type, [ModuleName], Args,Annot}
+		relatedIntention=[]}).

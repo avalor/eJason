@@ -32,11 +32,17 @@
 
 -module(ejason).
 
--export([run/1, run/2, run/3, run_test/1, run_test/2, parse/1,kill/1, kill/2,
-	kill_test/1, kill_test/2, compile/1, parse_compile/1,pcr/1,pcr/2]).
+-export([run_erl/1,run/1, run/2, run/3, run_test/1, run_test/2, parse/1,kill/1, kill/2,
+	kill_test/1, kill_test/2, compile/1, load/1,crun/1,crun/2,crun/3,
+	dm/0, sm/0, start/0]).
 
 
 -include("macros.hrl").
+
+run_erl([Name])->
+    run(list_to_atom(Name));
+run_erl([Agent,Name]) ->
+    run(list_to_atom(Agent),list_to_atom(Name)).
 
 %Agent can be an agent name or a name plus a number of copies
 run([])->
@@ -68,9 +74,32 @@ run(Code,NumOrName)->
 run(_,_,Num) when Num < 1 ->
     ok;
 run(Code,Name,Num) when is_number(Num)->
-    %io:format("Code: ~p~nName: ~p~nNum:~p~n\n",[Code,Name,Num]),
-    spawn(Code,start,[Num,Name,?NOTUNIQUE]),
+    register_as(Code,Name,Num),
     run(Code,Name,Num-1).
+
+
+ %used to spawn several agents from console
+register_as(Code,Name,OrderNum) ->
+    NewName = case(OrderNum) of
+		  1 ->
+		      Name;
+		  _ ->
+		      erlang:list_to_atom(
+			lists:flatten(
+			  io_lib:format("~p_~p",[Name,erlang:abs(OrderNum)])))
+	      end,
+
+    case whereis(NewName) of
+	undefined->
+	    utils:execute(no_name,no_module,'.',
+			  {create_agent, {NewName,
+					  Code,no_custom}, no_label});
+			  
+	    %Pid = spawn(Code,start,[NewName]),
+	    %register(NewName,Pid);
+	_ ->
+	    register_as(Code,Name,OrderNum+1)
+    end.
 
 
 run_kill([])->
@@ -109,14 +138,44 @@ run_kill(Name,Num) ->
     end.
 
 
+% (re)starts the distribution manager
+dm()->
+   case whereis(ejason_distribution_manager) of
+       undefined->
+	   ok;
+       Pid ->
+	   exit(Pid,kill),
+	   timer:sleep(10)
+   end,
+
+   spawn(ejason_distribution_manager,start,[]).
+
+% (re)starts the supervision manager
+
+sm()->
+   case whereis(ejason_supervision_manager) of
+       undefined->
+	   ok;
+       Pid ->
+	   exit(Pid,kill),
+	   timer:sleep(10)
+
+   end,
+   spawn(ejason_supervision_manager,start,[]).
+
+% Both above
+start()->
+    sm(),
+    dm().
 
 parse([]) ->
     ok;
 parse(AgentName) when is_atom(AgentName)->
     jasonNewParser:parseAgents([AgentName]);
-parse([AgentName|List]) ->
-    parse(AgentName),
-    parse(List).
+parse({AgentName,Environment})->
+    jasonNewParser:parseAgents([{AgentName,Environment}]);
+parse(AgentNameList) when is_list(AgentNameList) ->
+    jasonNewParser:parseAgents(lists:flatten(AgentNameList)).
 
 
 
@@ -174,17 +233,44 @@ kill_test(Agent,Num)->
 
 
 compile(File)->
-    compile:file(File,[report_errors]).
+    compile:file(File,[report_errors]),
+    c:l(File).
 
 
-parse_compile(File)->
+% Parse and compile
+load(File)->
     parse(File),
     compile(File).
 
-pcr(File)->
-    pcr(File,1).
 
-pcr(File,Num)->
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Parses the .asl file, compiles and runs the agent
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+crun(File)->
+    crun(File,1).
+
+crun(File,Name) when is_atom(Name)->
+    crun(File,Name,1);
+crun(File,Num)when is_integer(Num)->
+    Module = case File of
+		 _ when is_atom(File)->
+		     File;
+		 {ModuleName,_Environment}->
+		     ModuleName
+	     end,
+    crun(File,Module,Num).
+
+
+crun(File,Name,Num)->
     parse(File),
-    compile(File),
-    run(File,Num).
+    {Module,Environment} =
+	case File of
+	_ when is_atom(File)->
+	    {File,default_environment};
+	{_ModuleName,_Environment}=A->
+	    A
+	end,
+    compile(Module),
+    compile(Environment),
+    run(Module,Name,Num).

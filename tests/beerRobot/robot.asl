@@ -1,7 +1,7 @@
 consumed(beer,0).
 at(robot,owner).
 limit(beer,10).
-address(supermarket,'shopping_mall@babel.ls.fi.upm.es').
+//address(supermarket,'shopping_mall@avalor-laptop.fi.upm.es').
 
 
 too_much(Beverage) :-
@@ -16,6 +16,7 @@ too_much(Beverage) :-
 +!has(owner,beer)
    :  not too_much(beer)
    <- 
+      !monitor(owner);
       !at(robot,fridge);
       .send(fridge,achieve,give(beer)).
 
@@ -23,7 +24,6 @@ too_much(Beverage) :-
 +!has(owner,beer)
    :  too_much(beer)     
    <- 
- 
    ?limit(beer,Y);
    .print("The Department of Health does not allow me to give you more than ", 
    Y, " beers a day! I am very sorry about that!");
@@ -51,11 +51,11 @@ too_much(Beverage) :-
 
 +no_more(beer) 
    :  (not 
-       closed(supermarket)) & address(supermarket,SupContainer)
+       closed(supermarket)) //&address(supermarket,SupContainer)
    <- 
         -no_more(beer);
-	.print("Fridge is empty, asking from ", SupContainer );
-   	.send(supermarket[container(SupContainer)],achieve, order(beer,5));
+	.print("Fridge is empty.");
+   	.send(supermarket,achieve, order(beer,5));
         .send(owner,tell,no_more(beer));
    	!at(robot,fridge).
 
@@ -79,34 +79,38 @@ too_much(Beverage) :-
   -+at(robot,P).
 
 
-+!monitor(Agent): address(Agent,Container) <-
++!monitor(Agent): true <-//address(Agent,Container) <-
       -closed(supermarket); 
-      .print("Super");
-      .monitor(Agent[container(Container)]).
+      .print(Agent," monitored.");//,Container);
+      .monitor(Agent).
 
 +!monitor(owner): true <-
 	.print("Monitoring owner");
 	.monitor(owner).
 
 
-+agent_down(supermarket[container(Container)])[reason(unknown_agent)]: true <-
++agent_down(supermarket)[reason(unknown_agent)]: true <-
     -agent_down(supermarket);				       
     +closed(supermarket);			       
     .print("There is no supermarket").
 
-+agent_down(supermarket[container(Container)])[reason(unreachable_agent)]: true <-
++agent_down(supermarket)[reason(unreachable_agent)]: true <-
     -agent_down(supermarket);				       
     +closed(supermarket);			       
     .print("I cannot find the supermarket").			       
-    
+    	
 
-+agent_down(supermarket[container(Container)])[reason(dead_agent)]: true <-
+
++agent_down(supermarket)[reason(dead_agent)]: true <-
      -agent_down(supermarket);				       
     +closed(supermarket);			       
-    .print("Supermarket is closed").			       
+    .print("Supermarket is closed").		       
     
 
-+agent_down(owner[container(Container)]): true <-
++agent_down(owner): true <-
     -agent_down(owner);				    		  
+   
    .print("Oh, oh. My master has passed out.").
+
+
 

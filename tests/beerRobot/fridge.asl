@@ -1,9 +1,15 @@
 contents(beer,4).
 
+//!give(beer)[source(pepe[container(home)])].
 
-+!give(Item)[source(Who[container(Container)])]:
-    contents(Item,Stock) & Stock > 0 <-
-    .print("Giving beer to ",Who, " in ", Container);
+!connect.
+
++!connect: true <-
+   .connect('shopping_mall@avalor-laptop.fi.upm.es').
+
++!give(Item)[source(Who)]:
+    contents(Item,Stock) & Stock > 0 <-   
+    .print("Giving ",Item," to ",Who);
     NewStock =  Stock + -1;
     -+contents(Item,NewStock); 
     .print("Beers left:  ", NewStock);
@@ -22,5 +28,4 @@ contents(beer,4).
      -delivered(Item,Qtd,OrderId);
      .print("Received ", Qtd, " units of ", Item);
      NewStock = Qtd + Stock;
-     -+contents(Item,NewStock). 
-
+     -+contents(Item,NewStock).  

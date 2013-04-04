@@ -1,7 +1,7 @@
 -module(belief_base).
 
 -export([start/0,start/1,assert/2,find/2,negate/2,negate_matching/2,
-	query_bb/4, match_annotation/2]).
+	query_bb/4, match_annotations/2, check_consistency/1]).
 
 -include("variables.hrl"). %% NO OTHER RECORD SHOULD BE SENT HERE
 
@@ -21,7 +21,7 @@ assert({Fact},BB) ->
     assert({Fact,{},[]},BB);
 assert(Fact, BB) when is_tuple(Fact)->
 %    io:format("Asserting ~p \nin ~p~n",[Fact,BB]),
-% TODO:try to replace member ny
+% TODO:try to replace member 
     case lists:member(Fact,BB) of
 	true ->
 %	    io:format("No change\n"),
@@ -64,30 +64,45 @@ drop_first(Query,[Fact|List],Acc)->
 
 %% Finds which elements of BB match the pattern in Query
 find(Query,BB)->
- %   io:format("Queried: ~p~n",[Query]),
-  %  io:format("BB: ~p~n",[BB]),
+%    io:format("Queried: ~p~n",[Query]),
+ %   io:format("BB: ~p~n",[BB]),
 %    QueryList = tuple_to_list (Query),
 
     FilterFun = fun (Fact) -> match_fact(Query,
 					 Fact) end, 
     Res = lists:filter(FilterFun,BB),
-   % io:format("Result from BB: ~p~n",[Res]),
+ %   io:format("Result from BB: ~p~n",[Res]),
     Res.
 
 
 
 
-% First elem: QueryTuple
-% Second elemen: FactTuple
-
+%match_fact({QueryName,QueryArgs,QueryAnnots}, 
+%	   {FactName = #var{bind = ?UNBOUNDVAR},
+%	    {},FactAnnots}) ->
+%	    io:format("ASDADASD ~p~n",[QueryArgs]),
+%    case QueryArgs of
+%	'_' -> % To avoid a loop in this function matching
+%	    io:format("ASDADASD ~n~n"),
+%	    match_fact({QueryName,{},QueryAnnots},
+%		       {FactName#var{bind = QueryName},{},FactAnnots});
+%	_ ->
+%	    match_fact({QueryName,QueryArgs,QueryAnnots},
+%		       {FactName#var{bind = QueryName},QueryArgs,FactAnnots})
+%   end;
+match_fact(A,A) ->
+    true;
+match_fact({QueryName,'_',QueryAnnots},
+	  {FactName,FactArgs,FactAnnots}) ->
+    match_fact({QueryName,FactArgs,QueryAnnots},
+	  {FactName,FactArgs,FactAnnots});
 
 match_fact({QueryName,QueryArgs,QueryAnnots},
-	  {FactName,FactArgs,FactAnnots}) when size(QueryArgs) ==
-						     size(FactArgs)->
-					     %  QueryName == FactName->
-%    io:format("QName: ~p  FactName: ~p~n"++
-%	      "QArgs: ~p~nFactArgs: ~p~n"++
-%	      "QAnnots: ~p  FactAnnots: ~p~n",[QueryName,FactName,
+	   {FactName,FactArgs,FactAnnots}) when size(QueryArgs) ==
+						size(FactArgs)->
+ %   io:format("QName: ~p  FactName: ~p~n"++
+%	  "QArgs: ~p~nFactArgs: ~p~n"++
+%	  "QAnnots: ~p  FactAnnots: ~p~n",[QueryName,FactName,
 %					      QueryArgs,FactArgs,QueryAnnots,
 %					      FactAnnots]),
     NameMatch = 
@@ -96,10 +111,15 @@ match_fact({QueryName,QueryArgs,QueryAnnots},
 		true;
 	    {'_',_}->
 		true;
+%	    {_,#var{bind = ?UNBOUNDVAR}}-> % happens only in annots
+%		    true;
+%	    {FactMatch, #var{bind = FactMatch}}-> % happens only in annots
+%		true;
 	    _ ->
 		false
 		    end,
 
+%   io:format("Name Match: ~p~n",[NameMatch]),
     if 
 	NameMatch ->
 	    
@@ -124,6 +144,8 @@ match_fact(A= {QueryName,QueryArgs,QueryAnnots},
 
 
 match_args([],[])->
+    true;
+match_args(SameArgs,SameArgs)->
     true;
 match_args([QueryArg|RestQuery],[FactArg|RestFact])->
     
@@ -157,7 +179,7 @@ match_args(_,_) ->
 match_annots([],_)->
     true;
 match_annots([QueryAnnot|Annots],FactAnnots) ->
- %   io:format("Trying to match ~p in ~p~n",[QueryAnnot,FactAnnots]),
+    %io:format("Trying to match ~p in ~p~n",[QueryAnnot,FactAnnots]),
     case find(QueryAnnot,FactAnnots) of
 	[] ->
 	    false;
@@ -191,7 +213,7 @@ negate_matching(ReceivedQuery = {Atom,Params,Label},BB)->
 
 %% Returns ALWAYS an iterator (which may be empty)
 query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
-   % io:format("Module: ~p~n",[Module]),
+ % io:format("Module: ~p~n",[Module]),
 
 %		  io:format("QUERYBB Bindings: ~p~n",[Bindings]),
 %		  io:format("QUERYBB Args: ~p~n",[Args]),
@@ -199,13 +221,19 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 
 %		  io:format("ReceivedQuery: ~p~n",[ReceivedQuery]),
 
-    Query = preprocess_query(ReceivedQuery),
+    Query =  %% change: {'_',{},[]} -> {'_','{}',[]}
+	case preprocess_query(ReceivedQuery)of
+	    {'_',{},[]} ->
+		{'_','_',[]};
+	    NewQuery ->
+		NewQuery
+	end,
 %io:format("BB: ~p~n",[BB]),
 	  
-%io:format("Query: ~p~n",[Query]),
+%io:format("Preprocessed Query: ~p~n",[Query]),
 
     BeliefResults = find(Query,BB),
-%    io:format("Beliefs: ~p~n",[BeliefResults]),
+%    io:format("Belief results: ~p~n",[BeliefResults]),
 %   NoBeliefResults = 
 %	case BeliefResults of 
 %	    [] ->
@@ -277,13 +305,6 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 %io:format("FinalIterator: ~p~n",[iterator:get_all(FinalIterator)]),
 
 
-
-
-
-
-
-
-
     %% The return value is an iterator that provides matches
     %% for the variables in the query 
 
@@ -292,7 +313,6 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 %	false->
 %	    false;
 %	_ when is_function(FinalIterator) ->
-
 
 	    Fun = fun (Result) ->
 %		  io:format("ReceivedQuery: ~p~n",[ReceivedQuery]),
@@ -336,13 +356,13 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 			    [Res]);
 			   %++Valuation]);
 	
-		      {_Params,_Args,_Annot}-> %% Result from a belief
+		      {_,_,_}-> %%{Params,Args,Annot}: Result from a belief
 			  
 		       case postprocess_query(Result,ReceivedQuery) of
 			   false ->
 			       false;
 			   Vars when is_list(Vars) ->
- %   io:format("ReceivedQuery: ~p~n",[ReceivedQuery]),
+			%   io:format("ReceivedQuery: ~p~n",[ReceivedQuery]),
 
 %		       io:format("PostProcessquery: ~p~n",[Vars]),
 			       iterator:create_iterator(
@@ -350,7 +370,7 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 		       end;	      
 		      
 		      Other->
-			  io:format("[belief_base] Expected variable list,"++ 
+			  io:format("[belief_base] Expected a tuple,"++ 
 				    "found: ~p~n",[Other])
 		  end
 	  end,
@@ -367,51 +387,53 @@ query_bb(BB,Bindings,Module, ReceivedQuery = {Name,Args,_Annot}) ->
 
 %preprocess_query( {Name,{}, []})->
 %    preprocess_query(Name);
-preprocess_query( {Name,Args, Annot})->
- %   io:format("Tuple: ~p\n",[T]),
+preprocess_query({Name = #var{},{}, []})->  % happens in annotations
+    %io:format("Name: ~p~n",[Name]),
+    case preprocess_query(Name) of
+	'_' ->
+	    {'_','_',[]};
+	Else->
+	    Else
+    end;	    
+preprocess_query( T={Name,Args, Annot})->
+    %io:format("Tuple: ~p\n",[T]),
 
-    {preprocess_query(Name),
+    {case preprocess_query(Name) of % Added to handle annot matches
+	 {AtomName,{},[]} when is_atom(AtomName)->
+	     AtomName;
+	 Other -> Other
+     end,
      list_to_tuple(preprocess_query(tuple_to_list(Args))),
      preprocess_query(Annot)};
 preprocess_query(List) when is_list(List) ->
-%    io:format("List: ~p~n",[List]),
+    %io:format("List: ~p~n",[List]),
     Fun = fun (X) -> 
 		  preprocess_query(X) end,
     lists:map(Fun, List);
-preprocess_query(#var{%is_ground=IB,
-		  bind = Bind})->
-
+preprocess_query(#var{bind = Bind})->
+   % io:format("Bind: ~p~n",[Bind]),
     case Bind of
 	{} ->
 	    '_';
+	Atom when is_atom(Atom) ->
+	    {Atom,{},[]};
 	_ ->
 	    preprocess_query(Bind)
     end;
 preprocess_query(Tuple) when is_tuple(Tuple) ->
-%    io:format("List: ~p~n",[List]),
+    %io:format("List: ~p~n",[Tuple]),
     list_to_tuple(preprocess_query(tuple_to_list(Tuple)));
 
 preprocess_query(Atom) when is_atom(Atom)->
-%    io:format("Atom\n"),
-    Atom;
+   % io:format("Atom\n"),
+   Atom;
 preprocess_query(Number) when is_number(Number)->
-%    io:format("Atom\n"),
+    %io:format("Atom\n"),
     Number.
 %preprocess_query(Otro) ->
-%    io:format("Otro: ~p~n",[Otro]).
+ %   io:format("Otro: ~p~n",[Otro]).
 
 
-
-%% Matches the params to their proper value from the valuation
-%match_params(ParamList,Valuation) ->
-%    match_params(ParamList,Valuation,[]).
-
-%match_params([],Valuation,Acc)->
-%    Acc;
-%match_params([Param = #var{timestamp = TS}
-%	   |ParamList],Valuation,Acc) ->
-%    MVar = variables:get_var_from_timestamp(TS,Valuation),
-%    #v
 
 
 
@@ -419,12 +441,20 @@ preprocess_query(Number) when is_number(Number)->
 %% the values in the result.
 %% Returns a list of variable matches or
 %% false if some variable could not be matched.
+postprocess_query(Result =
+		  {_NameR,_ArgsR,_AnnotR},
+		  {Var=#var{bind={}}, 
+			% query is a stand-alone variable
+		   {},[]})->
+    [Var#var{bind =
+	     variables:fully_valuate(Result)}];   
+	
 postprocess_query(Result = 
 		  {NameR,ArgsR,AnnotR},
 		  Query =
 		  {NameQ,ArgsQ,AnnotQ}) ->
 
-%    io:format("Postprocessquery->\n\tQuery: ~p~nResult: ~p~n",[Query,Result]),
+    %io:format("Postprocessquery->\n\tQuery: ~p~nResult: ~p~n",[Query,Result]),
     
 
 
@@ -435,6 +465,7 @@ postprocess_query(Result =
 		  tuple_to_list(ArgsQ))),
 	     postprocess_query(AnnotR,AnnotQ)},
     Matches = variables:retain_variables(PreRes),
+%    io:format("Matches: ~p~n",[Matches]),
     case check_consistency(Matches) of
       false ->
 	  false;
@@ -445,6 +476,10 @@ postprocess_query(Value, Var = #var{})->
     Var#var{bind = Value, is_ground = true};
 postprocess_query(Atom, Atom) ->
     Atom;
+% Postprocessing annotations. TODO: It must change to consider different lenghts
+% and match sources properly
+postprocess_query(List1,[]) when is_list(List1)->
+    List1;
 postprocess_query(List1,List2) when is_list(List1),
 				    is_list(List2)->
     List3 = [X ||
@@ -490,24 +525,246 @@ is_consistent(Var = #var{timestamp = TS, bind = Bind1},
 is_consistent(Var,_) ->
     Var.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%% FUNCTIONS DEALING WITH ANNOTATIONS
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-match_annotation(Annotations, Query) ->
-%    io:format("[MATCH ANNOTATION]:\nAnnotations: ~p~nQuery: ~p~n",
+
+
+%% Matches the variables in Annotations and Query
+%% Annotations comes from runtime execution. Query comes from source
+%% code
+%% Returns ALWAYS an iterator
+match_annotations(Annotations, Query) ->
+%   io:format("[MATCH ANNOTATION]:\nAnnotations: ~p~nQuery: ~p~n",
 %	      [Annotations,Query]),
     try
-	It = query_bb(Annotations,[],undef, Query),
+	It = query_annotations(Annotations, Query),
+	
 %	io:format("Matched annotations with: ~p~n",[iterator:get_all(It)]),
+
 	It
     catch
-	_:_ ->
-%	    io:format("Error in Match Annotation~n"),
-	    iterator:create_iterator([]) 
+	A:B ->
+	    io:format("Error ~p:~p in Match Annotation~n",[A,B]),
+	    {iterator:create_iterator([]),[]} 
     end.
 
-%% Ensures that the shape of an annotation is that of
-%% a belief: {Name, {{par1,{},[]}}, Annot} or {Name,{},Annot}
-%annotation_to_bb(Annot) when is_atom(Annot) ->
-%    {Annot,{},[]};
-%annotation_to_bb({Name,Args,Belief) ->
+
+
+%% Returns ALWAYS an iterator (which may be empty)
+query_annotations(Annotations,ReceivedQuery = {Name,Args,_Annot}) ->
+   
+ %   io:format("Received query: ~p~n",[ReceivedQuery]),
+    
+    Query =  %% change: {'_',{},[]} -> {'_','{}',[]}
+	case preprocess_query(ReceivedQuery)of
+	    {'_',{},[]} -> % For standalone variables in annot
+		{'_','_',[]};
+	    {{QAtom,{},[]},QArgs,QAnnots} when is_atom(QAtom),
+					       is_tuple(QArgs),
+					       is_list(QAnnots)->
+		{QAtom,QArgs,QAnnots};
+	    NewQuery ->
+		%io:format("Did not match: ~p~n",[NewQuery]),
+		NewQuery
+	end, 
+
+%io:format("preprocessed annot query: ~p~n",[Query]),
+    BeliefResults = find_annot(Annotations,Query),
+    
+    ItBeliefs = iterator:create_iterator(BeliefResults),    
+
+%io:format("~n~n~nPOSTPROCESSING: ~p~n~n",[BeliefResults]),
+
+    PostFun = 
+	fun (Result) ->
+%		io:format("Postprocessing Result: ~p~nReceivedQuery: ~p~n",
+%			  [Result,ReceivedQuery]),
+		case postprocess_annot_match(Result,
+					     ReceivedQuery) of
+		    false->
+			false;
+		    PreRes->
+			Matches = variables:retain_variables(PreRes),
+			case check_consistency(Matches) of
+			    false ->
+				false;
+			    Vars ->
+				[utils:erase_repeated_vars(Vars)]
+			end
+%      io:format("Result of postprocessing annots: ~p~n",
+%					[Matches]),
+		end 
+	end,
+    
+    iterator:create_iterator_fun(ItBeliefs,PostFun).
+    
+			      
+			      
+     
+%    Arguments = [[]]++variables:fully_valuate(tuple_to_list(Args)),
+		  
+%    io:format("Arguments: ~p~n",[Arguments]),
+    
+
+
+%% Finds which elements of the annotations match the pattern in Query
+%% Returns a list with those elements.
+find_annot(Annotations,Query)->
+%    io:format("Queried: ~p~n",[Query]),
+%    io:format("Annotations: ~p~n",[Annotations]),
+    QueryList = tuple_to_list (Query),
+
+    FilterFun = fun (Annot) -> match_annot(Query,
+					   Annot) end, 
+    Res = lists:filter(FilterFun,Annotations),
+%    io:format("Result from Annotations: ~p~n",[Res]),
+    Res.
+
+
+match_annot({QueryName,QueryArgs,QueryAnnots}, 
+	   {AnnotName = #var{bind = ?UNBOUNDVAR},
+	    {},[]}) ->
+    case QueryArgs of
+	'_' -> % To avoid a loop in this function matching
+	    match_annot({QueryName,{},QueryAnnots},
+		       {AnnotName#var{bind = QueryName},{},QueryAnnots});
+	_ ->
+	    match_annot({QueryName,QueryArgs,QueryAnnots},
+		       {AnnotName#var{bind = QueryName},QueryArgs,QueryAnnots})
+    end;
+
+match_annot({QueryName,QueryArgs,QueryAnnots}, 
+	   {AnnotName = #var{bind = ?UNBOUNDVAR},
+	    {},AnnotAnnots}) ->
+    case QueryArgs of
+	'_' -> % To avoid a loop in this function matching
+	    match_annot({QueryName,{},QueryAnnots},
+		       {AnnotName#var{bind = QueryName},{},AnnotAnnots});
+	_ ->
+	    match_annot({QueryName,QueryArgs,QueryAnnots},
+		       {AnnotName#var{bind = QueryName},QueryArgs,AnnotAnnots})
+    end;
+match_annot({QueryName,'_',QueryAnnots},
+	  {AnnotName,AnnotArgs,AnnotAnnots}) ->
+    match_annot({QueryName,AnnotArgs,QueryAnnots},
+	  {AnnotName,AnnotArgs,AnnotAnnots});
+match_annot({QueryName,QueryArgs,QueryAnnots},
+	   {AnnotName,AnnotArgs,AnnotAnnots}) when size(QueryArgs) ==
+						size(AnnotArgs)->
+  %  io:format("QName: ~p  AnnotName: ~p~n"++
+%	  "QArgs: ~p~nAnnotArgs: ~p~n"++
+%	  "QAnnots: ~p  AnnotAnnots: ~p~n",[QueryName,AnnotName,
+%					      QueryArgs,AnnotArgs,QueryAnnots,
+%					      AnnotAnnots]),
+    NameMatch = 
+	case {QueryName,AnnotName} of
+	    {AnnotName,AnnotName} ->
+		true;
+	    {'_',_}->
+		true;
+	    {_,#var{bind = ?UNBOUNDVAR}}-> 
+		    true;
+	    {AnnotMatch, #var{bind = AnnotMatch}}-> 
+		true;
+	    _ ->
+		false
+		    end,
+
+%   io:format("Name Match: ~p~n",[NameMatch]),
+    if 
+	NameMatch ->
+	    
+	    case match_args(tuple_to_list(QueryArgs),tuple_to_list(AnnotArgs)) of
+		true ->
+		    match_annots(QueryAnnots,AnnotAnnots);
+		false ->
+%		    io:format("args do not match~p"),
+		    false
+	    end;
+	true ->
+	    false
+    end;
+match_annot(A= {QueryName,QueryArgs,QueryAnnots},
+	   B={AnnotName,AnnotArgs,AnnotAnnots} ) ->
+%    io:format("[BB:matchannot, info]~p does not match ~p~n",[A,B]),
+%   io:format("Because:  size(QueryArgs) =/=
+%    size(AnnotArgs) -> ~p =/= ~p~n  QueryName =/= AnnotName 
+%    ~p =/= ~p~n",[ size(QueryArgs), size(AnnotArgs),QueryName,AnnotName]),
+    false.
+
+
+
+%% Matches all variables in the query and result.
+%% Returns a list of variable matches or
+%% false if some variable could not be matched.
+postprocess_annot_match(
+			{Var=#var{bind=?UNBOUNDVAR}, {},[]},
+		        {QName=#var{bind=?UNBOUNDVAR}, {},[]})->
+                         % Result and query are stand-alone variables
+    [Var#var{bind = QName#var.timestamp}];   
+postprocess_annot_match(_Result =
+			{Var=#var{bind={}}, {},[]},
+		       Query =
+		        {_QName, _QArgs,_QAnnots})->
+                         % Result is a stand-alone variable
+
+    [Var#var{bind = variables:make_timestamp_tuple(Query)}];   
+
+postprocess_annot_match(Result =
+		  {_NameR,_ArgsR,_AnnotR},
+		  {Var=#var{bind={}},  {},[]})->
+
+
+       % Query is a stand-alone variable
+    [Var#var{bind =
+	     variables:fully_valuate(Result)}];   
+
+postprocess_annot_match(Result = 
+		  {NameR,ArgsR,AnnotR},
+		  Query =
+		  {NameQ,ArgsQ,AnnotQ}) ->
+
+%    io:format("PostprocessqueryAnnot->\n\tQuery: ~p~nResult: ~p~n",
+%	      [Query,Result]),
+    
+    PreRes = {postprocess_annot_match(NameR,NameQ),
+	      list_to_tuple(
+		postprocess_annot_match(
+		  tuple_to_list(ArgsR),
+		  tuple_to_list(ArgsQ))),
+	     postprocess_annot_match(AnnotR,AnnotQ)},
+    Matches = variables:retain_variables(PreRes),
+    case check_consistency(Matches) of
+      false ->
+	  false;
+      Vars ->
+	  utils:erase_repeated_vars(Vars)
+  end;
+postprocess_annot_match(Value, Var = #var{})->
+    Var#var{bind = Value, is_ground = true};
+postprocess_annot_match(Atom, Atom) ->
+    Atom;
+postprocess_annot_match(List1,List2) when is_list(List1),
+				    is_list(List2)->
+    List3 = [X ||
+		X <- lists:zip(List1,List2)],
+    Fun = fun ({Value1,Value2}) ->
+		  postprocess_annot_match(Value1,Value2) end,
+    lists:map(Fun,
+	     List3).
+
+    
+
+
+
+
+
+
+
+
 
 

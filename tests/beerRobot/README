@@ -1,6 +1,6 @@
 To run this example run, in a shell of two different hosts:
-(remember changing the address of agent supermarket in robot.asl to
-the proper host)
+(remember changing the .connect(Container) in fridge.asl to the 
+name of the container where the agent supermarket runs)
 
 *********HOST 1*****
 

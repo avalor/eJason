@@ -11,15 +11,21 @@ To compile eJason sources, just type:
 This will generate a set of ".beam" files inside "./eJason/ebin".
 
 We also suggest copying into the ebin folder all ".asl" files, i.e. all Jason
-source code files.
+source code files, that will be run.
 
-To obtain the source code of an eJason agent, we must start an Erlang shell
-inside "ebin" by invoking:
+To start an eJason system, an Erlan shell must be started (including
+in the path the address to the compiled .beam files of eJason):
 
-erl
+erl -pa eJason/ebin/
 
-Then, for a Jason file named "agentName.asl", invoke the following
-command in the Erlang shell:
+Then invoke the following action to start the Distribution Manager and
+the Supervision Manager:
+
+ejason:start().
+
+----------------------------------------------------------------------------
+To obtain the source code of an eJason agent, we must invoke the
+following function (for a file name "agentName.asl" in the example):
 
 ejason:parse(agentName).
 
@@ -52,3 +58,11 @@ ejason:kill(agentName, N).
 
 Check the README file for each of the tests, as some may require special
 start parameters or the start of several Erlang nodes
+
+
+****** NOTES ON ONGOING WORK  **************
+
+Our implementation of eJason varies the semantics of Jason to include
+a new supervision mechamisn and a new distribution mechanism. A formal
+semantics of these mechanisms is being developed. Besides, an
+informal semantics will soon be available (submitted for review).
