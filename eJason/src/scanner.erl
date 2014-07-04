@@ -2,7 +2,6 @@
 
 -compile(export_all).
 
--import(file).
 
 getTokens(File)->
     {ok,F} = file:open(File,[read]),
