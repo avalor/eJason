@@ -1,19 +1,36 @@
 To run this example run, in a shell of two different hosts:
-(remember changing the .connect(Container) in fridge.asl to the 
-name of the container where the agent supermarket runs)
+
+
+********* Set up:
+
+Remember changing the .connect(Container) in fridge.asl to the 
+name of the container where the agent supermarket runs.
+
+Copy the corresponding ".asl" files into the folder "agents".
 
 *********HOST 1*****
 
-erl -pa ../../eJason/ebin/ -name shopping_mall
+./ejason -c shopping_mall
 
-Then start agent supermarket with ejason:pcr(supermarket).
+Then start agent supermarket with:
+
+> ejason:build(supermarket).
+> ejason:run("supermarket").
 
 
 *********HOST 2*****
 
-erl -pa ../../eJason/ebin/ -name home
+./ejason -c home
 
-Then start agents fridge,robot and owner  with ejason:pcr(Name).
+Then start agents fridge,robot and owner  with:
+
+> ejason:build(fridge). 
+> ejason:build(robot).
+> ejason:build(owner).
+
+> ejason:run("fridge").
+> ejason:run("owner").
+> ejason:run("robot").
 
 
 

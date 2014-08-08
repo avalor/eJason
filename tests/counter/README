@@ -1,0 +1,13 @@
+
+********* Set up:
+
+Copy the corresponding ".asl" files into the folder "agents".
+
+*********HOST 1*****
+
+./ejason -c someName
+
+Then start agent counter with:
+
+> ejason:build(counter).
+> ejason:run("counter").

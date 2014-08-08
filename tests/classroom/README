@@ -1,19 +1,33 @@
 To run this example run, in a shell of two different hosts:
-(remember changing the .connect(Container) in pupil.asl to the 
-name of the container where the agent teacher runs)
+
+********* Set up:
+
+Remember changing the .connect(Container) in pupil.asl to the 
+name of the container where the agent teacher runs.
+
+Copy the corresponding ".asl" files into the folder "agents".
+
 
 *********HOST 1*****
 
-erl -pa ../../eJason/ebin/ -name TeacherContainer
+./ejason -c teacherContainer
 
-Then start agent teacher with ejason:pcr(teacher).
+
+
+Then start agent teacher with:
+
+> ejason:build(teacher).
+> ejason:run("teacher").
 
 
 *********HOSTS N*****
 
-erl -pa ../../eJason/ebin/ -name PupilContainer
+./ejason -c PupilContainer
 
-Then start different pupils  with ejason:pcr(pupil).
+Then start different pupils  with:
+
+> ejason:build(pupil).
+> ejason:run("pupil").
 
 
 
