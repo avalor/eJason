@@ -2,26 +2,39 @@
 Thanks for your interest in eJason, our experimental implementation of
 Jason in Erlang. Here you can find the commands necessary to run a MAS
 using eJason (for UBUNTU Linux)
+
+If you have any issues, please feel free to contact me at:
+avalor@babel.ls.fi.upm.es
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 To compile eJason sources, just type:
 
-./configure
+make
 
 This will generate a set of ".beam" files inside "./eJason/ebin".
 
-We also suggest copying into the ebin folder all ".asl" files, i.e. all Jason
-source code files, that will be run.
+We also suggest copying into the "agents" folder all ".asl" files,
+i.e. all Jason source code files, that will be run. This folder is
+included in the path were eJason looks for Jason files.
 
-To start an eJason system, an Erlang shell must be started (including
-in the path the address to the compiled .beam files of eJason):
+To start an eJason system, execute the script 'ejason':
 
-erl -pa eJason/ebin/
+./ejason  [-c ContainerName]
 
-Then invoke the following action to start the Distribution Manager and
-the Supervision Manager:
+where ContainerName is the name of the container that composes the
+newly created system. As a matter of example, consider the command:
 
-ejason:start().
+./ejason -c myContainer
+
+Its execution will generate a container myContainer@userHost, where
+userHost is the name of the host where the command was executed.
+
+The ejason script starts an erlang shell invoking the command 'erl'.
+Therefore, it accepts any parameter associated to 'erl' (see
+http://erlang.org/doc/man/erl.html).
+
+The ejason runtime system (the Distribution Manager and the
+Supervision Manager) is started as well. 
 
 ----------------------------------------------------------------------------
 To obtain the source code of an eJason agent, we must invoke the
