@@ -1,2 +1,1 @@
-(mkdir ./eJason/ebin);
 erlc -W0 -o ./eJason/ebin/ -I ./eJason/include/ ./eJason/src/*.erl
