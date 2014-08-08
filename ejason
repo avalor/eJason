@@ -1,0 +1,12 @@
+#!/bin/bash
+
+CONTAINER=" "
+
+while getopts ":c:" opt; do
+  case $opt in
+    c) CONTAINER="-name $OPTARG"
+    ;;
+  esac
+done
+
+erl $CONTAINER -pa ./ebin/ ./agents ./include -run ejason start "$@"
