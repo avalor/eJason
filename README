@@ -13,7 +13,7 @@ This will generate a set of ".beam" files inside "./eJason/ebin".
 We also suggest copying into the ebin folder all ".asl" files, i.e. all Jason
 source code files, that will be run.
 
-To start an eJason system, an Erlan shell must be started (including
+To start an eJason system, an Erlang shell must be started (including
 in the path the address to the compiled .beam files of eJason):
 
 erl -pa eJason/ebin/
@@ -25,7 +25,7 @@ ejason:start().
 
 ----------------------------------------------------------------------------
 To obtain the source code of an eJason agent, we must invoke the
-following function (for a file name "agentName.asl" in the example):
+following function (for a file named "agentName.asl" in the example):
 
 ejason:parse(agentName).
 
