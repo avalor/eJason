@@ -1,4 +1,14 @@
+clean:
+
+	rm -f *.beam
+	rm -f *.erl
+
 all:
+
+	mkdir -p ebin
+
+	mkdir -p agents
+
 	rm -f ebin/actions.beam ebin/belief_base.beam ebin/conditions.beam \
 		ebin/ejason_distribution_manager.beam \
 		ebin/ejason_supervision_manager.beam \
