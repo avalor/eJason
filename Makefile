@@ -1,8 +1,3 @@
-clean:
-
-	rm -f *.beam
-	rm -f *.erl
-
 all:
 
 	mkdir -p ebin
@@ -27,3 +22,8 @@ all:
 		./src/reasoningCycle.erl ./src/scanner.erl		\
 		./src/test_goal.erl ./src/utils.erl			\
 		./src/variables.erl
+
+clean:
+
+	rm -f *.beam
+	rm -f *.erl
