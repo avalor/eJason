@@ -37,34 +37,44 @@ The ejason runtime system (the Distribution Manager and the
 Supervision Manager) is started as well. 
 
 ----------------------------------------------------------------------------
-To obtain the source code of an eJason agent, we must invoke the
-following function (for a file named "agentName.asl" in the example):
+The source code of the Jason agents (i.e. the '.asl' files) that run
+in eJason must be placed in a directory belonging the to search path
+of eJason. By default, the folders "ebin", "include" and "agents"
+belong to it. Additional directories Dir1... DirN can be added via the
+parameter "-pa Dir1 ... DirN" to the ejason script.
 
-ejason:parse(agentName).
+To compile and load the Jason code of an agent, the following command
+must be run:
 
-A new file named "agentName.erl" is generated, which contains the
-eJason source code for the agent. This file must be compiled either
-from a system shell invoking:
+> ejason:build(agentName).
 
-erlc -o ./ebin agentName.erl
+To run this agent, type:
 
-Or from the Erlang shell:
+> ejason:run("agentName").
 
-c(agentName).
+Note that, for convenience, the latter is a string.
 
-Once it is compiled, the agent can be run by introducing the following
-command in an Erlang shell:
 
-ejason:run(agentName).
+For instance, to run the "counter" agent within the tests provided the 
+following sequence of commands suffices:
+
+> ./ejason -c container1
+
+> ejason:build(counter).
+
+> ejason:run("counter").
+
+
 
 This agent will always be alive. If we want to stop it, we must call:
 
-ejason:kill(agentName).
+ejason:kill(counter).
 
-If "N" agents with the same name were launched, we can kill all
-them by invoking:
+If "N" agents with the same name (actually, they will be renamed
+counter_2... counter_N) were launched, we can kill all them by
+invoking:
 
-ejason:kill(agentName, N).
+ejason:kill(counter, N).
 
 
 ****** RUNNING TESTS  ****************

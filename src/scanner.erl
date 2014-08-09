@@ -2,10 +2,16 @@
 
 -compile(export_all).
 
+-include("include/macros.hrl").
 
 getTokens(File)->
-    {ok,F} = file:open(File,[read]),
-    scan(F).
+    case file:path_open(code:get_path(),File,[read]) of
+	{ok, F, _Path} ->
+	    scan(F);
+	{error, enoent} ->
+	    io:format("File: ~s cannot be found.~n",[File]),
+	    exit(asl_file_not_found)
+    end.
     
 
 scan(Inport) ->
@@ -22,7 +28,9 @@ scan(Inport, Prompt, Line1) ->
 		    scan(Inport, Prompt, Line2);
 		_ ->
 		    Toks = lex(Tokens),
-		    {Stat,Scan} = scan(Inport,Prompt,Line2),
+		    ResultScan = scan(Inport,Prompt,Line2),
+		    %%io:format("Result Scan: ~p~n",[ResultScan]),
+		    {Stat,Scan} = ResultScan,
 		    case Stat of
 			ok ->
 			    {ok,[[Toks]|[Scan]]};
@@ -43,18 +51,34 @@ scan(Inport, Prompt, Line1) ->
 lex([]) ->
     [];
 lex([Token | Tokens]) ->
-%    io:format("Token: ~p~n",[Token]),
+  %%io:format("Token: ~p~n",[Token]),
     case Token of
 	{'fun',Line} ->
 	    [{atom,Line,'fun'}|lex(Tokens)];
         {'-',Line}->
 	    case Tokens of
+	
+		%% [{integer,Line2,Int}|MoreTokens] ->
+		%%     %% -Int -> + (-1*Int)
+		%%     [{'+',Line2},{'(',Line2},{number,Line2,-1},{'*',Line2},
+		%%      {number, Line2, Int}, {')',Line2}|lex(MoreTokens)];
+		%% [{float,Line2,Float}|MoreTokens] ->
+		%%     %% -Float -> + (-1*Float)
+		%%     [{'+',Line2},{'(',Line2},{number,Line2,-1},{'*',Line2},
+		%%      {number, Line2, Float}, {')',Line2}|lex(MoreTokens)];
+	
+		%% [{var,Line2,Var}|MoreTokens] ->
+		%%     %% -Var -> + (-1*Var)
+		%%     [{'+',Line2},{'(',Line2},{number,Line2,-1},{'*',Line2},
+		%%      {var, Line2, Var}, {')',Line2}|lex(MoreTokens)];
 		[{integer,_Line2,Int}|MoreTokens] ->
-		    [{number, Line, -Int}|lex(MoreTokens)];
-		[{float,_Line2,Float}|MoreTokens] ->
-		    [{number, Line, -Float}|lex(MoreTokens)];
+		    [{neg_number, Line, -Int}|lex(MoreTokens)];
+		[{float,_Line2,Float}|MoreTokens] ->	   
+		    [{neg_number, Line, -Float}|lex(MoreTokens)];
+
 		%% [{var,Line2,Var}|MoreTokens] ->
 		%%     [Token, {arith_var, Line2, Var}|lex(MoreTokens)];
+
 		[{'+',_Line2}|MoreTokens] ->
 		    [{'-+', Line}|lex(MoreTokens)];
 		_ ->
@@ -62,11 +86,9 @@ lex([Token | Tokens]) ->
 	    end;
 
 
-%	{'[', Line} ->
-%	    {Items,Rest} = lex(Tokens),
-%	    [{list, Line} | lex(Tokens)]
-%	    end;
-
+	{'--',Line}->
+	    lex([{'-',Line},{'-',Line}|Tokens]);
+	
 
 
 	{'!', Line} ->
@@ -76,6 +98,29 @@ lex([Token | Tokens]) ->
 		_ ->
 		    [{'!', Line} | lex(Tokens)]
 	    end;
+	{'?', Line} ->
+	    case Tokens of
+		[{'?',_Line2}|MoreTokens] ->
+		    [{'??', Line}|lex(MoreTokens)];
+		_ ->
+		    [{'?', Line} | lex(Tokens)]
+	    end;
+	{'{', Line} ->
+	    case Tokens of
+		[{'{',_Line2}|MoreTokens] ->
+		    [{'{{', Line}|lex(MoreTokens)];
+		_ ->
+		    [{'{', Line} | lex(Tokens)]
+	    end;
+	{'}', Line} ->
+	    case Tokens of
+		[{'}',_Line2}|MoreTokens] ->
+		    [{'}}', Line}|lex(MoreTokens)];
+		_ ->
+		    [{'}', Line} | lex(Tokens)]
+	    end;
+
+
 	{'\\', Line} ->
 	    case Tokens of
 		[{'==',_Line2}|MoreTokens] ->
@@ -86,9 +131,9 @@ lex([Token | Tokens]) ->
 	    end;
 	{'/',Line}->
 	    case Tokens of
-		[{'/',Line}|MoreTokens]->
+		[{'/',_Line}|MoreTokens]->
 		    lex(skipLine(Line,MoreTokens));
-		[{'*',Line}|MoreTokens]->
+		[{'*',_Line}|MoreTokens]->
 		    lex(skipSome(MoreTokens));
 		_ ->
 		    [{'/',Line}|lex(Tokens)]
@@ -97,6 +142,10 @@ lex([Token | Tokens]) ->
 	    case Tokens of
 		[{'*',_Line2}|MoreTokens] ->
 		    [{'**', Line}|lex(MoreTokens)];
+		[ {'-',_Line1},{integer,_Line2,Int}|MoreTokens]->
+		    [{'*', Line},{number,_Line2,-Int}|lex(MoreTokens)];
+		[ {'-',_Line1},{float,_Line2,Float}|MoreTokens]->
+		    [{'*', Line},{number,_Line2,-Float}|lex(MoreTokens)];
 		_ ->
 		    [{'*', Line} | lex(Tokens)]
 	    end;
@@ -104,23 +153,35 @@ lex([Token | Tokens]) ->
 	    case Tokens of
 		[{'..',_Line2}|MoreTokens] ->
 		    [{'=..', Line}|lex(MoreTokens)];
+		[{string,SomeLine,String}|MoreTokens]->
+		    [{'=', Line},{rel_string,SomeLine,String}|
+		     lex(MoreTokens)];		     
 		_ ->
 		    [{'=', Line} | lex(Tokens)]
 	    end;
 	{var, Line, VarName}->
+	    NewVarName = 
+		case VarName of
+		    '_' ->
+			?UNDERSCORE;
+		    _ ->
+			list_to_atom(lists:flatten("Ejason_"++
+						   atom_to_list(VarName)))
+		end,
+	     % io:format("NewVarName: ~p~n",[NewVarName]), 
 	    case Tokens of
-		[{'(',_OtherLine}|_] ->
-		    [{var_fun,Line,VarName}|
-		     lex(Tokens)];
+		
 		[{'[',_OtherLine}|_] ->
-		    [{var_label,Line,VarName}|
+		    [{var_label,Line,NewVarName}|
 		     lex(Tokens)];
 		_ ->
-		    [{var,Line,VarName}|
-		    lex(Tokens)]
+		    [{var,Line,NewVarName}|
+		     lex(Tokens)]
 	    end;
-        {atom, Line, true} ->
-	    [{true,Line}| lex(Tokens)];
+        %% {atom, Line, true} ->
+	%%     [{true,Line}| lex(Tokens)];
+	%% {atom, Line, false} ->
+	%%     [{false,Line}| lex(Tokens)];
 	{atom, Line, mod} ->
 	    [{mod,Line}| lex(Tokens)];
 	{reserved_word, Line, 'div'}->
