@@ -58,7 +58,7 @@ Note that, for convenience, the latter is a string.
 For instance, to run the "counter" agent within the tests provided the 
 following sequence of commands suffices:
 
-> ./ejason -c container1
+./ejason -c container1
 
 > ejason:build(counter).
 
