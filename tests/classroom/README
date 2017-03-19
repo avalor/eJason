@@ -1,23 +1,25 @@
 To run this example run, in a shell of two different hosts:
 
 ********* Set up:
+This test is mean to test simple message-passing between distributed
+agents. 
 
-Remember changing the .connect(Container) in pupil.asl to the 
-name of the container where the agent teacher runs.
+First run the agent "teacher" in a container named "school" and
+spawn as many pupils as desired.
+#Note: replace hostname '@avalor-laptop.ls.fi.upm.es' by your own.
 
 Copy the corresponding ".asl" files into the folder "agents".
 
 
 *********HOST 1*****
 
-./ejason -c teacherContainer
+./ejason -c school
 
 
 
 Then start agent teacher with:
 
-> ejason:build(teacher).
-> ejason:run("teacher").
+> ejason:crun(teacher).
 
 
 *********HOSTS N*****
@@ -26,11 +28,12 @@ Then start agent teacher with:
 
 Then start different pupils  with:
 
-> ejason:build(pupil).
-> ejason:run("pupil").
+> ejason:crun(pupil).
 
 
+Several pupils can be started at the same time, e.g.:
 
+> ejason:crun(pupil, 10).
 
 
 
