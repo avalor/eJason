@@ -1,6 +1,6 @@
 consumed(beer,0).
 at(robot,owner).
-limit(beer,10).
+limit(beer,3).
 //address(supermarket,'shopping_mall@avalor-laptop.fi.upm.es').
 
 
@@ -29,7 +29,10 @@ too_much(Beverage) :-
    Y, " beers a day! I am very sorry about that!");
    ?consumed(beer,X);
    .print("Consumed ",X, " beers when the limit is ", Y, ".");
-   .send(owner,tell,msg(" I am very sorry!")).    
+   .my_name(MyName);
+   .print("Killing ",MyName);
+   .kill_agent(MyName).
+//   .send(owner,tell,msg(" I am very sorry!")).    
 
 
 +!has(owner, beer) 
@@ -81,12 +84,12 @@ too_much(Beverage) :-
 
 +!monitor(Agent): true <-//address(Agent,Container) <-
       -closed(supermarket); 
-      .print(Agent," monitored.");//,Container);
-      .monitor(Agent).
+      .print(Agent," is now monitored.");//,Container);
+      .monitor_agent(Agent).
 
 +!monitor(owner): true <-
-	.print("Monitoring owner");
-	.monitor(owner).
+	.print("Monitoring the owner");
+	.monitor_agent(owner).
 
 
 +agent_down(supermarket)[reason(unknown_agent)]: true <-

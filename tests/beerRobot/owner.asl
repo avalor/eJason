@@ -1,21 +1,26 @@
-physical_limit(21).
+physical_limit(10).
 beers_drunk(1).
 inactive(robot).
 
+!start.
 
-!monitor(robot).
++!start <-
+   .print("I feel like having a beer.");
+   .monitor_agent(robot);
+   !get(beer).
+
 
 +!get(beer) : physical_limit(Limit) & 
-	    beers_drunk(Drunk) & Drunk <= Limit & not inactive(robot)
+	    beers_drunk(Drunk) & Drunk <= Limit & agent_up(robot)
    <-
    .send(robot, achieve, has(owner,beer));
    .print("Getting a beer"). 
 
 
 +!get(beer):  physical_limit(Limit) & 
-	    beers_drunk(Drunk) & Drunk >Limit & not inactive(robot)
+	    beers_drunk(Drunk) & Drunk >=Limit
    <-
-     .print("I feel strangg..");
+     .print("I feel strangghh..");
      .kill_agent(owner).
 
 
@@ -30,7 +35,8 @@ inactive(robot).
 +!drink(beer) : remaining_sips(Sips) & Sips > 0
    <-
      NewSips = Sips + -1;
-     .print("Sip");     
+     .print("Sip");
+     .wait(1000);     
      -+remaining_sips(NewSips);
      ?remaining_sips(X);
      !!drink(beer).
@@ -46,14 +52,6 @@ inactive(robot).
    !!get(beer).
  
 
-+msg(M)[source(Ag)] : true 
-   <- .print(Ag," says: ",M); 
-      -msg(M);
-      .print("Unacceptable!");
-      .print("Let's restart my mechanic friend.");
-      .kill_agent(Ag).
-
-
 +closed(supermarket): true <-
     -closed(supermarket);
     !sleep.
@@ -65,20 +63,19 @@ inactive(robot).
 +!sleep: true <-
      .print("No beer means nap time. Zzz.");
      -closed(supermarket);
-     .wait(2000);
+     .wait(5000);
      !!get(beer).
+
++agent_up(robot): true <-
+     !!get(beer).
+
 
 +agent_down(robot): true <-
       +inactive(robot);
-      .demonitor(robot);
+      .demonitor_agent(robot);
       -agent_down(robot);
-      .create_agent(robot,"robot.asl");
-      .wait(1000);
       .print("Robot has stopped working. Start anew!");
-      !monitor(robot).
+      .create_agent(robot,"./robot.asl");
+      .wait(1000);
+      .monitor_agent(robot).
 
-
-+!monitor(robot):true <-
-     -inactive(robot);
-     .monitor(robot);
-     !!get(beer).

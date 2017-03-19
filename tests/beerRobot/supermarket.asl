@@ -1,5 +1,9 @@
 last_order_id(1). 
 
+!start.
+
++!start <-
+  .print("Supermarket is open.").
 
 +!order(Product,Qtd)[source(Ag)] : last_order_id(N) &
    OrderId = N +1

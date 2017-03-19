@@ -5,7 +5,7 @@ contents(beer,4).
 !connect.
 
 +!connect: true <-
-   .connect('shopping_mall@avalor-laptop.fi.upm.es').
+   .connect_to('shopping_mall@avalor-laptop.ls.fi.upm.es').
 
 +!give(Item)[source(Who)]:
     contents(Item,Stock) & Stock > 0 <-   

@@ -1,10 +1,22 @@
-To run this example run, in a shell of two different hosts:
-
+To run this example, use two different command shells, even in
+from different hosts:
 
 ********* Set up:
 
-Remember changing the .connect(Container) in fridge.asl to the 
-name of the container where the agent supermarket runs.
+This scenario presents a basic scenario including agent creation, monitoring
+and distributed communication.
+
+The supermarket just provides beer to the fridge upon request.
+The fridge gives beer to the robot and request more to the supermarket.
+The owner drinks beer, sleeps when there is no beer and restarts the robot.
+The robot serves beer from the fridge to the owner up to a maximum,
+which is reset when the agent is created anew.
+
+The scenario finishes when the owner has drunk beyond its physical limit.
+
+Update the action ".connect_to(Container)" in fridge.asl to the 
+name of the container where the agent supermarket runs 
+(i.e. 'shopping_mall@my_host').
 
 Copy the corresponding ".asl" files into the folder "agents".
 
@@ -14,23 +26,17 @@ Copy the corresponding ".asl" files into the folder "agents".
 
 Then start agent supermarket with:
 
-> ejason:build(supermarket).
-> ejason:run("supermarket").
+> ejason:crun(supermarket).
 
 
 *********HOST 2*****
 
 ./ejason -c home
 
-Then start agents fridge,robot and owner  with:
+Then start agents fridge and owner  with:
 
-> ejason:build(fridge). 
-> ejason:build(robot).
-> ejason:build(owner).
-
-> ejason:run("fridge").
-> ejason:run("owner").
-> ejason:run("robot").
+> ejason:crun(fridge).
+> ejason:crun(owner).
 
 
 
