@@ -1,10 +1,10 @@
 start.
 init_count(0).
-max_count(5).
+max_count(15).
 
 
-siguiente(X,Y) :-
-	       Y = X +1.
+next(X,Y) :-
+    Y = X +1.
 
 !startcount.
 
@@ -15,7 +15,8 @@ siguiente(X,Y) :-
 			
 
 +!count: actual_count(X)& max_count(Y)& X < Y <-
-		?siguiente(X, NewCount);
+		?next(X, NewCount);
+		.print("New Counter: ",NewCount);
 		-+actual_count(NewCount);
 		!count.
 
