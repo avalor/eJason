@@ -9,5 +9,11 @@ Copy the corresponding ".asl" files into the folder "agents".
 
 Then start agent counter with:
 
-> ejason:build(counter).
-> ejason:run("counter").
+> ejason:parse(counter).
+> ejason:compile(counter).
+> ejason:run(counter).
+
+
+or, mose concisely:
+
+> ejason:crun(counter).
