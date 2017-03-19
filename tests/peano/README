@@ -3,11 +3,31 @@
 
 Copy the corresponding ".asl" files into the folder "agents".
 
+To vary the scenario, change the initial values X and Y 
+within the initial goal !start(X,Y). 
+
+In order to test peano multiplication uncomment:
+
+	//?mult(PeanoX,PeanoY, PMult);
+	//?peano_to_dec(PMult, DMult);
+	//.print(X, " * ", Y," = ",DMult);
+	
+
 *********HOST 1*****
 
 ./ejason -c someName
 
 Then start agent peano with:
 
-> ejason:build(peano).
-> ejason:run("peano").
+> ejason:parse(peano).
+> ejason:compile(peano).
+> ejason:run(peano).
+
+
+or, mose concisely:
+
+> ejason:crun(peano).
+
+
+
+
