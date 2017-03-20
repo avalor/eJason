@@ -9,4 +9,4 @@ while getopts ":c:" opt; do
   esac
 done
 
-erl $CONTAINER -pa ./ebin/ ./agents ./include -run ejason start "$@"
+erl +t 100000000 $CONTAINER -pa ./ebin/ ./agents ./agents/erlang ./include -run ejason start "$@"
