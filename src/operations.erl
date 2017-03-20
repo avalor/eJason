@@ -17,25 +17,29 @@
 %% TODO: change ?FAIL by false
 operation(OriginalBindings,Operator,Arg1,Arg2) ->
     
-	%% io:format("RelAssig Bindings: ~p~n",[OriginalBindings]),
-	%% io:format("~p Arg1: ~p~n",[Operator,Arg1]),
-	%% io:format("~p Arg2: ~p~n",[Operator,Arg2]),
-	
-	{CorrectedBindings1,CorrectedArg1} = 
+	 %% io:format("Original Bindings: ~p~n",[OriginalBindings]),
+	 %% io:format("~p Arg1: ~p~n",[Operator,Arg1]),
+	 %% io:format("~p Arg2: ~p~n",[Operator,Arg2]),
+
+   try
+    {CorrectedBindings1,CorrectedArg1} = 
 	variables:correct_structs(OriginalBindings,Arg1),
-	
-	{Bindings,CorrectedArg2} = 
+    
+    {Bindings,CorrectedArg2} = 
 	variables:correct_structs(CorrectedBindings1,Arg2),
+
+	 %% io:format("CorrectedBindings1: ~p~n",[CorrectedBindings1]),
+	 %% io:format("Bindings: ~p~n",[Bindings]),
  
     %% 	   %% io:format("~p Arg1: ~p~n",[Operator,Arg1]),
-    %% 	    io:format("~p CorrectedArg1: ~p~n",[Operator,CorrectedArg1]),
+     	    %% io:format("~p CorrectedArg1: ~p~n",[Operator,CorrectedArg1]),
 
     %% 	   %% io:format("~p Arg2: ~p~n",[Operator,Arg2]),
-    %% 	    io:format("~p  CorrectedArg2: ~p~n",[Operator,CorrectedArg2]),
+     	    %% io:format("~p  CorrectedArg2: ~p~n",[Operator,CorrectedArg2]),
 
 
-    try
-	Result =
+    
+    Result =
 	case Operator of 
 	    rel_assig ->
 		%% Special case for rel_assig,
@@ -61,18 +65,22 @@ operation(OriginalBindings,Operator,Arg1,Arg2) ->
 	
     catch
 	exit:{unbound_var,VarName}->
-	    io:format("Var ~p is unbound. Condition fails.\n",[VarName]),
+	    %% io:format("Var ~p is unbound. Condition fails.\n",[VarName]),
 	    {?FAIL};
 	  
 	  %% error:function_clause ->
 	  %%   io:format("Invalid Operation: ~p ~p ~p~n\n",
 	  %% 	      [CorrectedArg1,Operator,CorrectedArg2]),
-	  %%   %% timer:sleep(3000), %% ** ERASE
+	  %%   %% timer:sleep(3000),
 	  %%   {?FAIL};
 	  
 	  exit:improper_list ->
-	    {?FAIL}
-	  
+	    {?FAIL};
+	_:_ ->
+	    %%io:format("[Operations WARNING:]
+	    %% io:format("[~p] Operation Failure: ~n    ~p ~p ~p ~n",
+	    %% 	      [?MODULE, CorrectedArg1, Operator, CorrectedArg2]),
+	    {?FAIL}	  
     end.
 
 
@@ -292,42 +300,21 @@ rel_assig(Bindings,
 		     args = ?ISATOM}
 	end,
     %%TODO: consider other kinds of ResultBO
-    %% e.g. A = B = 3`+4;
+    %% e.g. A = B = 3+4;
     rel_assig(variables:update(Bindings,
 			       [ResultBO]),
 	      InputVar1,ResultBO);
-    %%  Var1 = 
-    %% 	case InputVar1 of
-    %% 	    {VarRef1} ->
-    %% 		variables:get_var(VarRef1,Bindings);
-    %% 	    #var{} ->
-    %% 		InputVar1
-    %% 	end,
 
-    %% NewBO = variables:valuate(Bindings,BO),
-    %% #binary_operation{operator = OP,
-    %% 		      left_part = Left,
-    %% 		      right_part = Right} = NewBO,
-
-    %% %io:format("b)Var1: ~p~nBO: ~p~n",[Var1,NewBO]),
-
-    %% ResultVar =  ?MODULE:OP(Left,Right),
-    %% variables:update(Bindings,
-    %% 		     [ResultVar,
-    %% 		      Var1#var{functor = ResultVar#var.functor,
-    %% 			       args = ResultVar#var.args}]);
- 
 rel_assig(Bindings,InputVar1,InputVar2) ->
-%% io:format("INPUTVAR1: ~p~n",[InputVar1]),
-%  when is_atom(VarRef2); is_list(VarRef2)->
+    %% io:format("RELASSIG BINDINGS:~n~p~n",[Bindings]),
+
     Var1 = 
 	case InputVar1 of
 	    {VarRef1} ->
 		variables:get_var(VarRef1,Bindings);
 	    #var{} ->
 		InputVar1
-	end,
-		
+	end,		
     
     Var2 = 
 	case InputVar2 of
@@ -336,9 +323,8 @@ rel_assig(Bindings,InputVar1,InputVar2) ->
 	    #var{} ->
 		InputVar2
 	end,
-      
-    
- %   io:format("a)Var1: ~p~nVar2: ~p~n",[Var1,Var2]),
+        
+    %% io:format("operations.rel_assig:\nVar1: ~p~nVar2: ~p~n",[Var1,Var2]),
     
     case variables:match_vars(Bindings,Var1,Var2) of 
 	false ->

@@ -130,7 +130,6 @@ add_belief(Bindings,Belief) ->
 
 
 %% Generates an event ?ADDBELIEF
-%% Used when the source is not self
 add_belief(Bindings,NotValuatedBelief,Timestamp,Sender) ->  
 
 %% Added in case Belief is a reference to another belief
@@ -139,7 +138,7 @@ add_belief(Bindings,NotValuatedBelief,Timestamp,Sender) ->
 
 
     %% io:format("[utils] AddBelief: ~p~n",[Belief]),
-    %% io:format("[utils] ValuatedBelief: ~p~n",[ValuatedBelief]),
+    %% io:format("[utils] NotValuatedBelief: ~p~n",[NotValuatedBelief]),
 
 
 %%% Add source(Sender) which may be "percept" or "self"
@@ -164,11 +163,17 @@ add_belief(Bindings,NotValuatedBelief,Timestamp,Sender) ->
 	case Belief of 
 	    %% Content is an atom. e.g. a,b (not number or string) 
 	    #var{args = ?ISATOM, functor = SomeAtom} 
-	    when is_atom(SomeAtom)->
+	      when is_atom(SomeAtom)->
 		#var{ id = list_to_atom("VARFORNEWBEL"++Timestamp++"_0"),
 		      functor = Belief,
 		      args = {},
 		      annots = [SourceStructVar]};
+	    %%Content is a strong negation
+	    #var{args = ?STRONGNEG,
+		 annots = []} ->
+		Belief#var{annots = [SourceStructVar]};
+	    
+
 	    %% Content is a struct
 	    #var{args = Args,
 		 annots = Annots} when is_tuple(Args)->
@@ -177,24 +182,32 @@ add_belief(Bindings,NotValuatedBelief,Timestamp,Sender) ->
 		Belief#var{
 		  annots = lists:reverse(
 			     [SourceStructVar|
-			      lists:reverse(Annots)])}
-	
+			      lists:reverse(Annots)])};
+	    _ ->
+		%%% The belief cannot be added. e.g: +[1,2,3]; 
+		{?FAIL}
 	end,
 
+    case BeliefWithSource of
+	{?FAIL} ->
+	    {?FAIL};
 
-%% Belief correction is carried out. Added lately, so check for dependencies.
-
-    {CorrectedBindings,CorrectedBelief} = 
-	variables:correct_structs(
-	  Bindings,
-	  BeliefWithSource),
+	_ ->
+	    %% Belief correction is carried out. Added lately, so
+	    %% check for dependencies.
     
-    NewBelief =
-	variables:valuate(CorrectedBindings,CorrectedBelief),
+	    {CorrectedBindings,CorrectedBelief} = 
+		variables:correct_structs(
+		  Bindings,
+		  BeliefWithSource),
+	    
+	    NewBelief =
+		variables:valuate(CorrectedBindings,CorrectedBelief),
 
 
-    #event{type = ?ADDBELIEF,
-	   body = NewBelief}.
+	    #event{type = ?ADDBELIEF,
+		   body = NewBelief}
+    end.
 
 
 
@@ -236,9 +249,16 @@ new_intention_goal(Bindings,Goal)->
     NewGoal =
 	variables:valuate(CorrectedBindings,CorrectedGoal),
 
-    #event{type = ?ADDINTENTIONGOAL,
-	   body = NewGoal}.
+    GoalCheck =
+	test_goal_format(NewGoal),
 
+    case GoalCheck of 
+	true ->
+	    #event{type = ?ADDINTENTIONGOAL,
+		   body = NewGoal};
+	false ->
+	    {?FAIL}
+    end.
 
 
 
@@ -247,47 +267,60 @@ new_intention_goal(Bindings,Goal)->
 add_achievement_goal(Bindings,Goal)->
     {CorrectedBindings,CorrectedGoal} = 
 	variables:correct_structs(Bindings,Goal),
-    %%  io:format("utils  CorrectedGoal: ~p~n",[CorrectedGoal]),
+     %% io:format("utils  CorrectedGoal: ~p~n",[CorrectedGoal]),
     %% io:format("Bindings: ~p~n",[Bindings]),
-    NewGoal =
-	variables:valuate(CorrectedBindings,CorrectedGoal),
 
-        
-    SourceStructID = 
-	list_to_atom(
-	  "EJASONSOURCEACH"++variables:make_timestamp_string()),
+
+    %% Check whether the goal is bad formed:
+    GoalCheck =
+	test_goal_format(CorrectedGoal),
+
+    case GoalCheck of 
+	true ->
+	    
+	    NewGoal =
+		variables:valuate(CorrectedBindings,CorrectedGoal),
+	    
+	    
+	    SourceStructID = 
+		list_to_atom(
+		  "EJASONSOURCEACH"++variables:make_timestamp_string()),
 
     
-    SelfVar =
-	#var{id =self,
-	     functor = self,
-	     args = ?ISATOM},
-    
-    SourceVar =
-	#var{id =source,
-	     functor = source,
-	     args = ?ISATOM},
-    
-    SourceStructVar =
-	#var{id = SourceStructID,
-	     functor = SourceVar,
-	     args = {SelfVar},
-	     annots = []},
-        
-    GoalWithSource =	      
-	NewGoal#var{annots =
-		    %% Added at the end
-		    lists:reverse([SourceStructVar|
+	    SelfVar =
+		#var{id =self,
+		     functor = self,
+		     args = ?ISATOM},
+	    
+	    SourceVar =
+		#var{id =source,
+		     functor = source,
+		     args = ?ISATOM},
+	    
+	    SourceStructVar =
+		#var{id = SourceStructID,
+		     functor = SourceVar,
+		     args = {SelfVar},
+		     annots = []},
+	    
+	    GoalWithSource =	      
+		NewGoal#var{annots =
+				%% Added at the end
+				lists:reverse(
+				  [SourceStructVar|
 				   lists:reverse(NewGoal#var.annots)])},
-
-    #event{type = ?ADDACHGOAL,
-	   body = GoalWithSource,
-	   corrected_bindings = variables:update(CorrectedBindings,
-						[SelfVar,SourceVar,
-						 SourceStructVar#var{
-						   functor = {source},
-						   args = {{self}}}])
-	  }.
+	    
+	    #event{type = ?ADDACHGOAL,
+		   body = GoalWithSource,
+		   corrected_bindings = variables:update(CorrectedBindings,
+							 [SelfVar,SourceVar,
+							  SourceStructVar#var{
+							    functor = {source},
+							    args = {{self}}}])
+		  };
+	false ->
+	    {?FAIL}
+    end.
 
 
 
@@ -296,37 +329,66 @@ add_achievement_goal(Bindings,Goal)->
 add_achievement_goal(_Bindings,Goal,Timestamp,Sender)->
     %% io:format("CorrectedGoal: ~p~n",[CorrectedGoal]),
 
-    SourceStructID = 
-	list_to_atom(
-	  "VARFROMACHIEVE"++Timestamp++"_1"),
+   GoalCheck =
+	test_goal_format(Goal),
+    
+    case GoalCheck of
+	true ->
+	    SourceStructID = 
+		list_to_atom(
+		  "VARFROMACHIEVE"++Timestamp++"_1"),
+	    
+    
+	    SenderVar =
+		#var{id =Sender,
+		     functor = Sender,
+		     args = ?ISATOM},
+	    
+	    SourceVar =
+		#var{id =source,
+		     functor = source,
+		     args = ?ISATOM},
+	    
+	    SourceStructVar =
+		#var{id = SourceStructID,
+		     functor = SourceVar,
+		     args = {SenderVar},
+		     annots = []},
+	    
+	    GoalWithSource =	      
+		Goal#var{annots =
+			     %% Added at the end
+			     lists:reverse([SourceStructVar|
+					    lists:reverse(Goal#var.annots)])},
+	    
+	    #event{type = ?ADDACHGOAL,
+		   body = GoalWithSource};
+	false ->
+	    {?FAIL}
+    end.
 
-    
-    SenderVar =
-	#var{id =Sender,
-	     functor = Sender,
-	     args = ?ISATOM},
-    
-    SourceVar =
-	#var{id =source,
-	     functor = source,
-	     args = ?ISATOM},
-    
-    SourceStructVar =
-	#var{id = SourceStructID,
-	     functor = SourceVar,
-	     args = {SenderVar},
-	     annots = []},
-        
-    GoalWithSource =	      
-	Goal#var{annots =
-		    %% Added at the end
-		    lists:reverse([SourceStructVar|
-				   lists:reverse(Goal#var.annots)])},
-    
-    #event{type = ?ADDACHGOAL,
-	   body = GoalWithSource}.
 
 
+add_wait_test_goal(Bindings,Goal)->
+       {CorrectedBindings,CorrectedGoal} = 
+	variables:correct_structs(Bindings,Goal),
+    %% io:format("CorrectedGoal: ~p~n",[CorrectedGoal]),
+
+    NewGoal =
+	variables:valuate(CorrectedBindings,CorrectedGoal),
+
+    GoalCheck =
+	test_goal_format(NewGoal),
+   
+    case GoalCheck of
+	true ->
+
+	    #event{type = ?ADDWAITTESTGOAL,
+		   body = NewGoal,
+		   corrected_bindings = CorrectedBindings};
+	false ->
+	    {?FAIL}
+    end.
 
 
 add_test_goal(Bindings,Goal)->
@@ -337,10 +399,19 @@ add_test_goal(Bindings,Goal)->
     NewGoal =
 	variables:valuate(CorrectedBindings,CorrectedGoal),
 
-    #event{type = ?ADDTESTGOAL,
-	   body = NewGoal,
-	   corrected_bindings = CorrectedBindings}.
+   GoalCheck =
+	test_goal_format(NewGoal),
     
+    case GoalCheck of 
+	true ->
+
+	    #event{type = ?ADDTESTGOAL,
+		   body = NewGoal,
+		   corrected_bindings = CorrectedBindings};
+	false ->
+	    {?FAIL}
+    end.
+
  
 
 
@@ -488,7 +559,7 @@ getVarsFromResults([{_atom,Terms,_Label}|Rest],Acc) ->
 %% Changes all nonvar terms ({atom,line,name}) with a new 
 %% Varname ({var,line,newname} and updates
 %% the list of varnames.
-%% Returns a tuple {newterms, newvarnames}
+%% Returns a tuple {NewTerms, NewVarNames}
 replaceNonVarsForVars(Terms,Vars)->
     %io:format("Terms: ~p~n",[Terms]),
     %io:format("VarNames: ~p~n",[Vars]),
@@ -604,6 +675,31 @@ replacePositionInList(List,N,_NewElement) when N < 1->
 
 
 
+%% Check whether an achievement/test goal is bad formed
+%% It returns "true" if the goal is well formed (an atom or struct).
+%% Used by add_achievement_goal and add_test_goal
+test_goal_format(Goal) ->
+    
+    Result =
+	case Goal of
+	    %% Goal is an atom. e.g. a,b (not number or string) 
+	    #var{args = ?ISATOM, functor = SomeAtom} when is_atom(SomeAtom)->
+		true;
+	    %%Goal is a strong negation
+	    #var{args = ?STRONGNEG} ->
+		true;
+	    %% Goal is a struct
+	    #var{args = Args,
+		 annots = Annots} when is_tuple(Args)->
+		true;
+	    _ ->
+		%% The goal is bad formed e.g: ![1,2,3] or ?2. 
+		
+		false
+	end,
+    %% io:format("[utils] Goal is: ~p~nResult is: ~p~n",
+    %% 	      [Goal, Result]),
+    Result.
 
 
 killAgent([])->
@@ -681,3 +777,60 @@ split_path(String) ->
 	    {Path,FileName}
     end.
 
+
+
+%% Generates a random agent name 
+%% Used when .create_agent receives an unbound variable
+create_unique_name()->
+    TS = variables:make_timestamp_string(),
+    Node = erlang:atom_to_list(node()),
+    erlang:list_to_atom(TS++":"++Node).
+
+
+
+%% Deprecated. This does not avoid the collision with agent names in 
+%% different containers 
+create_random_name()->
+    %% 1) Create the random number generator (using timestamps as seed)
+    {H,M,S} = erlang:timestamp(),
+    random:seed(H,M,S),
+    %% 2) Generate first vowel
+    VowelList = [random:uniform(26)+96],
+    create_random_name(VowelList).
+    
+create_random_name(NameList) ->
+    Name = list_to_atom(NameList),
+    case whereis(Name) of
+	undefined ->
+	    %% Agent Name available
+	    Name;
+	_ ->
+	    NewNameList = [random:uniform(26)+96|NameList],
+	    create_random_name(NewNameList)
+    end.
+
+%%%%% TIME HANDLING FUNCTIONS
+
+%% Creates a timestamp in milliseconds
+%% NOTE: it will likely be negative, so do not use it for naming
+timestamp()->
+    NativeTime =
+	erlang:monotonic_time(),
+    erlang:convert_time_unit(NativeTime, native, millisecond).
+
+
+%% Removes old entries from a history of timestamps
+clean_history(History, infinity, _TimeStamp)->
+      History;
+clean_history(History, MaxTime, TimeStamp)->
+    lists:filter(
+      fun(Time) ->
+	      abs(Time-TimeStamp) =< MaxTime
+      end,
+      History).
+
+
+
+
+
+    

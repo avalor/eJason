@@ -20,30 +20,46 @@
 %%% Once a condition fails, it invokes the subsequent conditions
 %%% but replaces bindings by {?FAIL} (necessary, as that failure may
 %%% be intended.
+%%% An UNBLOCK signal may stop this iterator
 test_condition(AgentInfo,Bindings,Conditions,
 	       ExecuteCondition)->
-    %% io:format("Execute: ~p~n",[ExecuteCondition]),
-    %% io:format("From: ~p~n",[Conditions]),
 
-    {ok, {Module,Function,Args}} = orddict:find(ExecuteCondition,
-						Conditions),
-    NewArgs = case Function of
-		  return ->
-		      [Bindings];
-		  _ ->
-		      [AgentInfo,Bindings,Conditions|Args]
-	      end,
-    apply(Module,Function,NewArgs).
+    
+     %% io:format("Execute: ~p~n",[ExecuteCondition]),
+     %%io:format("Bindings: ~p~n",[Bindings]),
+
+    %% timer:sleep(50),
+    %% io:format("From: ~p~n",[Conditions]),****
+    receive
+	{signal, ?UNBLOCK} ->
+	    %% io:format("[Conditions] Agent Unblocked ~n"),
+	    %% timer:sleep(100),
+%%	    [orddict:new()]
+	    {?UNBLOCK}
+    after 0 ->
+			
+	    {ok, {Module,Function,Args}} = orddict:find(ExecuteCondition,
+							Conditions),
+	    NewArgs = case Function of
+			  return ->
+			      [Bindings];
+			  _ ->
+			      [AgentInfo,Bindings,Conditions|Args]
+		      end,
+	    apply(Module,Function,NewArgs)
+    end.
 	
 		  
 	       
 
-%% Returns either false (the trigger does not match) or an ItBindings
+%% Returns either false (the trigger+context do not match) or an ItBindings
 trigger(AgentInfo,Bindings,Conditions,Trigger,Event,FirstContextFun)->
     case variables:match_vars(Bindings,Trigger,Event) of
      false -> false; %% trigger does not match
      ItTriggerBindings -> 
-       Fun = fun (TriggerBindings) -> 
+       Fun = fun (TriggerBindings) ->
+		     %% io:format("[Contiditions] TriggerBindings: ~p~n",
+		     %% 	       [TriggerBindings]),
 		     test_condition(AgentInfo,
 				    TriggerBindings,
 				    Conditions,
@@ -62,6 +78,9 @@ return(Bindings) ->
     case Bindings of
 	{?FAIL} -> 
 	    false;
+	{?UNBLOCK} ->
+	    io:format("[Conditions] Unblock in return function~n"),
+	    false;
 	_ -> 
 	    iterator:create_iterator([Bindings]) 
     end.
@@ -77,11 +96,14 @@ return(Bindings) ->
 %% right one.
 logical_and(AgentInfo,Bindings,Conditions,LeftBranch,RightBranch)->
   %%Condition: logical AND
+    %% io:format("LogicalAND: ~n"),
 
-
+    %% timer:sleep(2000),
     ItRes =   
 	test_condition(AgentInfo,Bindings,
 		       Conditions,LeftBranch), 
+    %% io:format("ITRES: ~p~n",
+    %% 	      [ItRes]),
     
     Fun = fun (NewBindings) -> 
 		  test_condition(AgentInfo,NewBindings,
@@ -93,6 +115,11 @@ logical_and(AgentInfo,Bindings,Conditions,LeftBranch,RightBranch)->
 %% Branches the execution to both the left and right children
 logical_or(AgentInfo,Bindings,Conditions,LeftBranch,RightBranch)->
   %%Condition: logical OR 
+     %% io:format("LogicalOR: ~n"),
+
+     %% timer:sleep(2000),
+
+
     FLeft = fun () ->
 		     test_condition(AgentInfo,Bindings,
 				    Conditions,LeftBranch) 
@@ -115,10 +142,14 @@ strong_negation(AgentInfo,Bindings,Conditions,QueryVar,NextCondition)->
 
     ItRes = 
 	case Bindings of 
+	    {?UNBLOCK} ->
+		io:format("[Conditions] Unblock in StrNeg function~n"),
+		{?UNBLOCK};
+
 	    {?FAIL} -> 
 		iterator:create_iterator([{?FAIL}]);
 	    _ -> 
-		case belief_base:query_bb(gentInfo,Bindings,Query) of
+		case belief_base:query_bb(AgentInfo,Bindings,Query) of
 		    false -> 
 			iterator:create_iterator([{?FAIL}]);
 		    It when is_function(It) -> 
@@ -137,6 +168,10 @@ true(AgentInfo,Bindings,Conditions,NextCondition)->
 
     %% Condition: true
   ItRes = case Bindings of 
+	      {?UNBLOCK} ->
+		  io:format("[Conditions] Unblock in true function~n"),
+		  {?UNBLOCK};
+
 	      {?FAIL} -> 
 		  iterator:create_iterator([{?FAIL}]);
 	      _ -> 
@@ -162,8 +197,12 @@ false(AgentInfo,_Bindings,Conditions,NextCondition)->
 
 query_bb(AgentInfo,Bindings, Conditions,Query,NextCondition)->
     %% Condition: search for a belief/rule
-    
+    %% Function that generates all potential results (bindings)
     ItRes = case Bindings of 
+	      {?UNBLOCK} ->
+		  io:format("[Conditions] Unblock in queryBB function~n"),
+		    iterator:create_iterator([{?FAIL}]);
+
 		{?FAIL} -> 
 		    iterator:create_iterator([{?FAIL}]);
 		_ -> 
@@ -172,6 +211,7 @@ query_bb(AgentInfo,Bindings, Conditions,Query,NextCondition)->
 			    iterator:create_iterator([{?FAIL}]);
 			It when is_function(It) -> It end end,
 
+    %% Attempts next condition for each valid valuation
     Fun = fun (NewBindings) -> 
 		  test_condition(AgentInfo,NewBindings,
 				 Conditions,NextCondition) end,
@@ -183,6 +223,10 @@ log_not(AgentInfo,Bindings, Conditions,CheckCondition,NextCondition)->
   %% Condition: log not 
     ItRes = 
 	case Bindings of 
+	      {?UNBLOCK} ->
+		  io:format("[Conditions] Unblock in lognot function~n"),
+		  {?UNBLOCK};
+
 	    {?FAIL} ->  
 		iterator:create_iterator([{?FAIL}]);
 	    _ -> 
@@ -219,6 +263,10 @@ operation(AgentInfo,Bindings,Conditions,{operations,log_not,
 %% Condition:  (binary) operation 
 
   ItRes = case Bindings of 
+	      {?UNBLOCK} ->
+		  io:format("[Conditions] Unblock in operation function~n"),
+		  {?UNBLOCK};
+
 	      {?FAIL} -> iterator:create_iterator([{?FAIL}]);
 	      _ -> 
 		  %% Execute {Mod,Func,Args} first
@@ -261,8 +309,13 @@ operation(AgentInfo,Bindings,Conditions,{operations,operation,Args},
 %% Condition:  (binary) operation 
 
   ItRes = case Bindings of 
+	      {?UNBLOCK} ->
+		  io:format("[Conditions] Unblock in operation2 function~n"),
+		  {?UNBLOCK};
+
 	      {?FAIL} -> iterator:create_iterator([{?FAIL}]);
 	      _ -> 
+		  
 		  case apply(operations,operation,
 			     [Bindings|Args]) of 
 		      {?FAIL} -> 
@@ -287,6 +340,10 @@ internal_action(AgentInfo,Bindings,Conditions,Package,InternalAction,
     %% Condition: internal action
 
     ItRes = case Bindings of 
+	      {?UNBLOCK} ->
+		  %% io:format("[Conditions] Unblock in intAct function~n"),
+		  {?UNBLOCK};
+
 		{?FAIL} -> iterator:create_iterator([{?FAIL}]);
 		_ -> 
 		  case 

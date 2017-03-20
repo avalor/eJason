@@ -3,7 +3,7 @@
 -export([ internal_action/4,
 	  external_action/3,
 	  test_goal/3,
-	  no_wait_test_goal/3]).
+	  wait_test_goal/3]).
 
 -include("include/parser.hrl").
 -include("include/variables.hrl").
@@ -14,45 +14,62 @@
 
 
 
-%% Test goal in a plan formula that can be retried(??Query)
-test_goal(AgentInfo,Bindings,Query)->
+%% Test goal in a plan formula that can be retried(??Query) First, it
+%% tries to match the query into the belief base. If it cannot, it
+%% generates an add_wait_test_goal event to find a plan to match it
+%% (note that two cycles are then required). Regenerates the event if
+%% not successful.
+%% NOTE: the divergence on these goals will occur twice then.
+wait_test_goal(AgentInfo,Bindings,Query)->
     case belief_base:query_bb(AgentInfo,Bindings,Query) of
 	false -> 
-	    utils:add_test_goal(Bindings,Query);
+	    utils:add_wait_test_goal(Bindings,Query);
 	It when is_function(It) -> 
 	    case iterator:first(It) of
 		false -> %% Could not be resolved
-		    utils:add_test_goal(Bindings,Query);
+		    utils:add_wait_test_goal(Bindings,Query);
 		NewBindings when is_list(NewBindings)->
 		    {replace_bindings,
 		     iterator:create_iterator([NewBindings])}
 	    end
     end.
    
-%% Test goal in a plan formula that fails if it cannot be matched (?Query) 
-no_wait_test_goal(AgentInfo,Bindings,Query)->
+%% Test goal in a plan formula that fails if it cannot be matched
+%% (?Query) First, it tries to match the query into the belief
+%% base. If it cannot, it generates an add_test_goal event to find a
+% plan to match it (note that two cycles are then required). Then
+%% fails if not successful.
+test_goal(AgentInfo,Bindings,Query)->
+   %%  io:format("[Actions] Executing test goal: ~p~n",[Query]),
+
     case belief_base:query_bb(AgentInfo,Bindings,Query) of
 	false -> 
-	    ValuatedQuery = variables:valuate(Bindings, Query),
-	    #event{type =?FAILEDTESTGOAL,
-		   body = ValuatedQuery};
+	    io:format("[Actions] Test goal not matched1~n"),
+	    utils:add_test_goal(Bindings, Query);
+	    %% ValuatedQuery = variables:valuate(Bindings, Query),
+	    %% #event{type =?FAILEDTESTGOAL,
+	    %% 	   body = ValuatedQuery};
 	    %% io:format("Not Resolved: ~p~n",[Query]),
 	    %% {?FAIL};
 	It when is_function(It) -> 
+	   % io:format("[Actions] Iterator created, lets resolve~n"),
 	    case iterator:first(It) of
 		false -> %% Could not be resolved
-		    ValuatedQuery = variables:valuate(Bindings, Query),
-		    #event{type =?FAILEDTESTGOAL,
-			   body = ValuatedQuery};
-		    %% io:format("Noti Resolved: ~p~n",[Query]),
-		    %% {?FAIL};
+		    io:format("[Actions] Test goal not matched2~n"),
+		    
+		    utils:add_test_goal(Bindings, Query);
+		    %% ValuatedQuery = variables:valuate(Bindings, Query),
+		    %% #event{type =?FAILEDTESTGOAL,
+		    %% 	   body = ValuatedQuery};
+		    %% %% io:format("Noti Resolved: ~p~n",[Query]),
+		    %% %% {?FAIL};
 		NewBindings when is_list(NewBindings)->
+		 %   io:format("[Actions] Test goal matched~n"),
 		    {replace_bindings,
 		     iterator:create_iterator([NewBindings])}
 	    end
+
     end.
-
-
 
 
 
@@ -70,7 +87,7 @@ no_wait_test_goal(AgentInfo,Bindings,Query)->
     
 %%     Params = Args,%lists:map(Fun, tuple_to_list(Args)),
 %%     %Annotations = list_to_tuple(lists:map(Fun, Annot)),
-%%     TimeStamp = erlang:now(), % Will serve as identifier for the 
+%%     TimeStamp = erlang:timestamp(), % Will serve as identifier for the 
 %%                                % response message
     
 %%  %   Annotations = lists:map(Fun,Annots),
@@ -118,18 +135,18 @@ internal_action(AgentInfo, OriginalBindings,
       %% 					       OriginalBindings]),
 
     try	  
-	%% io:format("Original Internal ~p~n",
-	%% 	  [InAc]),
+	 %% io:format("Original Internal ~p~n",
+	 %% 	  [InAc]),
 
-	%% io:format("Original Bindings ~p~n",
-	%% 	  [OriginalBindings]),
-
-    {Bindings, CorrectedInternalAction} = 
+	 %% io:format("Original Bindings ~p~n",
+	 %% 	  [OriginalBindings]),
+    
+{Bindings, CorrectedInternalAction} = 
 	variables:correct_structs(OriginalBindings,InAc),
  
-   %% io:format("NewInternalAction: ~p ~n",[CorrectedInternalAction]),
+  %% io:format("NewInternalAction: ~p ~n",[CorrectedInternalAction]),
 
-   %%  io:format("NewBindings: ~p~n",[Bindings]),
+  %%    io:format("NewBindings: ~p~n",[Bindings]),
 
     
     InternalAction = variables:valuate(Bindings,
@@ -156,13 +173,15 @@ internal_action(AgentInfo, OriginalBindings,
 	    %% TODO: consider this case when invoking not INTACT or similar
 	    {?ACTIONSUSPEND,ID,SuspendedAction};
 	Other ->
-	    io:format("Actions.erl: Other: ~p~n",[Other]),
+	    io:format("[Actions.erl]: Invalid return value for"++
+			  " internal_action/4:~n ~p~n~n",[Other]),
             timer:sleep(3000),
 	    {?FAIL}
     end 
     catch
-	%% A:B ->
-	%%     io:format("A: ~p~nB: ~p~n",[A,B]);
+	 A:B ->
+	    io:format("[Actions.erl]Error: ~p~nReason: ~p~n",[A,B]),
+	    a=b;
 	exit:improper_list ->
 	    {?FAIL}
 
@@ -211,14 +230,81 @@ internal_action(_Agent,_OriginalBindings,
 %% 					  SuspendedIntention})
 
 %% 3) Handle the result in Response
-  
+%%
+%% The return values include {?FAIL}, {?ACTIONSUSPEND, ID, Action}, {?STUTTERACTION}
+%%  
 
+
+%%%%%%%%%%%%%%%%%%%%% SORT AFTER FINISHING!
+
+execute(AgentInfo,Bindings,'.',
+	SupervisionVar = 
+	    #var{functor = #var{args = ?ISATOM,
+				functor = supervise_agents},
+		 args =  {SupervisedSet},
+		 annots = _Label})->
+    UseSupervisedSet = variables:ejason_to_erl(SupervisedSet), 
+    io:format( "Supervised Set: ~p~n", [UseSupervisedSet]),
+    io:format( "Applying default no_ping supervision policy~n"),
+
+    DefaultPolicy =
+	#supervision_policy{no_ping = true,
+			    restart_strategy= #restart_policy{},
+			    revival=#revival_policy{}},
+
+    %% io:format("Execute again: ~p~n",
+    %% 	      [SupervisionVar#var{
+    %% 		 args = {SupervisedSet, DefaultPolicy}}]),
+    
+
+    execute(AgentInfo,Bindings, '.',
+	    SupervisionVar#var{
+	      args = {SupervisedSet, DefaultPolicy}});
+
+execute(#agent_info{agent_name = SupervisorAgent},Bindings,'.',
+	SupervisionVar = 
+	    #var{functor = #var{args = ?ISATOM,
+				functor = supervise_agents},
+		 args =  {SupervisedSet, SupervisionPolicy},
+		 annots = _Label})->
+
+    UseSupervisedSet = variables:ejason_to_erl(SupervisedSet), 
+    %% io:format( "Supervised Set: ~p~n", [UseSupervisedSet]),
+    %% io:format( "Supervision Policy received: ~p~n",[SupervisionPolicy]),
+ %%   io:format("Supervision Policy Var: ~p~n", [SupervisionPolicy]),
+    UseSupervisionPolicy =
+	case SupervisionPolicy of
+	    %% Default policy used (no_ping, never restart, never revive)
+	    #supervision_policy{} ->
+		SupervisionPolicy;
+		%%variables:ejason_to_erl(SupervisionPolicy);
+	    _ ->
+		ErlSupervisionPolicy = 
+		    variables:ejason_to_erl(SupervisionPolicy), 
+		variables:find_supervision_options(ErlSupervisionPolicy)
+	end,
+    %% io:format("Supervision Policy used: ~p~n", [UseSupervisionPolicy]),
+    SuperviseID = ?SM:supervise(
+		     SupervisorAgent, 
+		     UseSupervisedSet, UseSupervisionPolicy),
+    
+    ID = {?SM,SuperviseID},
+
+    %% io:format("[RC Sup] ID for suspended supervise: ~p~n",
+    %% 	      [ID]),
+    SuspendedAction = 
+	#suspended_supervise{
+	   supervisor_agent = SupervisorAgent,
+	   supervised_set = UseSupervisedSet,
+	   supervision_policy = UseSupervisionPolicy
+     },
+    {?ACTIONSUSPEND,ID,SuspendedAction};    
 
 
 %% Connect to a container
 execute(_AgentInfo,_Bindings,'.',
 	#var{functor = #var{args = ?ISATOM,
-			    functor = connect},
+			    functor = connect_to},
 	     args = {Container},
 	     annots =_})->
     
@@ -289,12 +375,12 @@ execute(_AgentInfo,Bindings,'.', #var{functor =
 
 execute(_AgentInfo,Bindings,'.', #var{functor =
 				      #var{args = ?ISATOM,
-					   functor = containers},
+					   functor = containers_list},
 				      args ={Containers}})->
   
     	
 
-    GetID = ?DM:get_containers(),
+    GetID = ?DM:get_info(),
 
     ID = {?DM,GetID},
     SuspendedAction = 
@@ -320,34 +406,48 @@ execute(AgentInfo,Bindings,'.',
 	      args ={AName, ParamCode,no_custom_properties}}
 	   );	
 
+
 execute(_AgentInfo,Bindings,'.',
 	#var{functor = #var{args = ?ISATOM,
 			    functor = create_agent},
 	     args =  {AName,ParamCode,_Custom},
 	     annots = _Label})->
+ %%   io:format("RC START CREATION~n"),
     try
 	
 	{AgentName,Node} = 
-	case AName of
-	    #var{args = ?ISATOM, functor = AtomName} ->
-		{AtomName,node()};
-	    
+	    case AName of
+		#var{args = ?ISATOM, functor = AtomName} ->
+		    AnonymousName = false,
+		    {AtomName,node()};
+		
 	    #var{functor = #var{args = ?ISATOM, functor = AtomName},
 		 args = {},
 		 annots = Annots}->
-		%% Check if the annotations specify another container.
-
-		ContainerName =
-		    variables:find_container_name(Bindings,Annots),
+		    AnonymousName = false,
+		    
+		    %% Check if the annotations specify another container.
+		    
+		    ContainerName =
+			variables:find_container_name(Bindings,Annots),
+		    
+		    %% io:format("[actions] Specified ContainerName: ~p~n",
+		    %% 	  [ContainerName]),
+		    
+		    {AtomName,ContainerName};
 		
-		 %% io:format("[actions] Specified ContainerName: ~p~n",
-		 %% 	  [ContainerName]),
-		
-		{AtomName,ContainerName}
-	end,
+		%% Create a RANDOM name for the new agent
+		#var{args=?UNBOUND} ->
+		    AnonymousName = true,
+		    %% NewName = NODE + TIMESTAMP
+		    NewName = utils:create_unique_name(),
+		    {NewName, node()}	    
+			
+			
+	    end,
     %%io:format("utils2~p~n",[ParamCode]),
     %%io:format("InputNode: ~p~n",[InputNode]),
-    %%io:format("New2!!~n~n"),
+	%%io:format("New2!!~n~n"),
 	%% io:format("[actions.erl] Creating agent with name: ~p in node ~p~n",
 	%% 	  [AgentName,Node]),
 
@@ -364,19 +464,90 @@ execute(_AgentInfo,Bindings,'.',
 
 	%% Creates a suspended action. Waits for the DM to answer
 	SuspendedAction = 
-	#suspended_create_agent{
-	  agent_name = AgentName,
-	  container = Node,
-	  code = Code
-	 },
+	    case AnonymousName of
+		false ->
+		    #suspended_create_agent{
+		       agent_name = AgentName,
+		       container = Node,
+		       code = Code
+		      };
+		true ->
+		    #suspended_create_agent{
+		       agent_name = AgentName,
+		       anonymousVar= AName,
+		       use_bindings = Bindings,
+		       container = Node,
+		       code = Code
+		      }
+	    end,
+	%%io:format("RC END~n"),
+		    
 	{?ACTIONSUSPEND,ID,SuspendedAction}
 	
     catch
 	%% e.g. .create_agent([1,2,3],_,_).
 	error:{case_clause,_Error} ->
-	    io:format("Create_agent Error~p~n",[_Error]),
+	    io:format("Create_agent Error: ~p~n Agent: ~p ParamCode: ~p~n",
+		      [_Error, AName, ParamCode]),
 	    {?FAIL}
     end;
+
+
+
+
+
+%%%% DEMONITOR another agent (the process running it) 
+%%%%  [.demonitor_agent(Agent)]
+execute(#agent_info{agent_name = MonitoringAgent},
+	Bindings,'.',
+	#var{functor = #var{args = ?ISATOM,
+			    functor = demonitor_agent},
+	     args = {AgentVar}}) ->
+    
+%    io:format("Demonitor~n"),
+    try 
+	MonitoredAgent = case AgentVar of
+		      #var{args = ?ISATOM}->
+			  AgentVar#var.functor;
+		      #var{args = {},
+			   functor = #var{args = ?ISATOM,
+					  functor = FuncAtom}}->
+			  FuncAtom
+		  end, 
+       %% io:format("ConfigurationVar: ~p~nOptions:~p~n",
+       %% 		 [ConfigurationVar, Options]),
+	
+%	io:format("Demonitoring ~p ~n",[MonitoredAgent]),
+	
+
+	%%% If an agent tries to monitor itself, just ignore it
+	case MonitoredAgent of
+	    MonitoringAgent ->
+		 %% io:format(
+		 %%   "[Actions] agent ~p tried to demonitor itself.Ignored.~n",
+		 %%   [MonitoredAgent]),
+		{?STUTTERACTION};
+	    _ ->
+		DemonitorID = ?SM:demonitor(MonitoringAgent, 
+					    MonitoredAgent),
+		%% io:format("[Actions] DemonitorID: ~p~n",
+		%% 	  [Demonitor]),
+		ID = {?SM,DemonitorID},
+		SuspendedAction = 
+		    #suspended_demonitor{ monitoring_agent = 
+					      MonitoringAgent,
+					  monitored_agent = MonitoredAgent},
+		{?ACTIONSUSPEND,ID,SuspendedAction}
+	end
+
+    catch
+	%% e.g. .demonitor([1,2,3]).
+	error:{case_clause,_} ->
+	    io:format("[Actions.erl, Debug]: Demonitor attempt failed~n"),
+	    {?FAIL}	
+    end;
+
+
 
  
     
@@ -385,7 +556,7 @@ execute(_AgentInfo,Bindings,'.',
 %% DISCONNECT from a container
 execute(_AgentInfo,_Bindings,'.',
 	#var{functor = #var{args = ?ISATOM,
-			    functor = disconnect},
+			    functor = disconnect_from},
 	     args={Container}})->
     
     ContainerName =
@@ -504,7 +675,7 @@ execute(#agent_info{agent_name = KillingAgent},
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-%% MONITOR another agent (the process running it) [.monitor(Agent)]
+%% MONITOR another agent (the process running it) [.monitor_agent(Agent)]
 execute(AgentInfo,
 	Bindings,'.',
 	MonitorVar = #var{functor = #var{args = ?ISATOM,
@@ -515,7 +686,7 @@ execute(AgentInfo,
 	    MonitorVar#var{args = {AgentVar, ?PERSISTANY}});
 
 %%%% MONITOR another agent (the process running it with options) 
-%%%%  [.monitor(Agent,Configuration)]
+%%%%  [.monitor_agent(Agent,Configuration)]
 execute(#agent_info{agent_name = MonitoringAgent},
 	Bindings,'.',
 	#var{functor = #var{args = ?ISATOM,
@@ -535,15 +706,30 @@ execute(#agent_info{agent_name = MonitoringAgent},
 	Options = 
 	    variables:find_monitor_options(Bindings,ConfigurationVar),
 	
-       	
+       %% io:format("ConfigurationVar: ~p~nOptions:~p~n",
+       %% 		 [ConfigurationVar, Options]),
+
 	%%io:format("~p monitors ~p ~n",[MyName, RegName]),
 	
-	MonitorID = ?SM:monitor(MonitoringAgent, MonitoredAgent, Options),
-	ID = {?SM,MonitorID},
-	SuspendedAction = #suspended_monitor{ monitoring_agent = MonitoringAgent,
-					      monitored_agent = MonitoredAgent,
-					      options = Options},
-	{?ACTIONSUSPEND,ID,SuspendedAction}
+
+	%%% If an agent tries to monitor itself, just ignore it
+	case MonitoredAgent of
+	    MonitoringAgent ->
+		%% io:format(
+		%%   "[Actions] agent ~p tried to monitor itself. Ignored.~n",
+		%%   [MonitoredAgent]),
+		{?STUTTERACTION};
+	    _ ->
+		MonitorID = ?SM:monitor(MonitoringAgent, 
+					MonitoredAgent, Options),
+		ID = {?SM,MonitorID},
+		SuspendedAction = 
+		    #suspended_monitor{ monitoring_agent = 
+					    MonitoringAgent,
+					monitored_agent = MonitoredAgent,
+					options = Options},
+		{?ACTIONSUSPEND,ID,SuspendedAction}
+	end
 
     catch
 	%% e.g. .monitor([1,2,3],abc).
@@ -555,18 +741,18 @@ execute(#agent_info{agent_name = MonitoringAgent},
 
 %%%%%%%%%%%%%%%%
 
-%% PRINT some string in the standard output
+%% .PRINT some string in the standard output
 execute(#agent_info{agent_name=MyName},
 	_Bindings,'.',#var{functor = #var{args = ?ISATOM,
 					  functor = print},
 			   args = String})-> 
-    %% io:format("IMPRIMIENDO ~p~n",[String]),
-    NewString =     
+     %% io:format("IMPRIMIENDO ~p~n",[String]),
+    NewString =
 	print_list(tuple_to_list(String)),
     
     %%     io:format("[~p:~p]: ~p~n",[MyName,node(),NewString]),
     io:format("[~p]: ~s~n",[MyName,NewString]),
-    %%    io:format("[~p,~p]: ~s",[Name,erlang:now(),NewString]),
+    %%    io:format("[~p,~p]: ~s",[Name,erlang:timestamp(),NewString]),
     {?STUTTERACTION};
 
 
@@ -607,7 +793,7 @@ execute(#agent_info{agent_name = MyName},Bindings,
 		AtomPerf
 	end,
 	
-	%%io:format("~p receiver is: {~p,~p}~n",[erlang:now(),ReceiverID,node()]),
+	%%io:format("~p receiver is: {~p,~p}~n",[erlang:timestamp(),ReceiverID,node()]),
 	%%io:format("{Intention,Message} is: {~p,~p}~n",[NewIntention,Message]    
 	
 	SendMessageID = ?DM:send_message(AgentName,SuggestedContainer),
@@ -629,7 +815,94 @@ execute(#agent_info{agent_name = MyName},Bindings,
 	    {?FAIL}
     end;
 
+
 %%%%%%%%%%%%%%%%
+
+
+%%% TIME Captures Hours Mins and Secs
+execute(_AgentInfo,Bindings,'.', #var{functor = #var{args = ?ISATOM,
+						     functor = time},
+				      args = {
+					HoursVar,
+					MinsVar,
+					SecsVar}}) ->
+    try
+	{_Date, {Hours, Mins, Secs}} = calendar:local_time(),
+      
+
+	ResHourVar = #var{args = ?ISATOM,
+			  functor = Hours,
+			  id = Hours},
+
+	ResMinsVar = #var{args = ?ISATOM,
+			  functor = Mins,
+			  id = Mins},
+	ResSecsVar = #var{args = ?ISATOM,
+			  functor = Secs,
+			  id = Secs},
+
+	HourBindings =   orddict:store(ResHourVar#var.id,
+				       ResHourVar,
+				       Bindings),
+
+	MinsBindings =   orddict:store(ResMinsVar#var.id,
+				       ResMinsVar,
+				       HourBindings),
+
+
+	SecsBindings = orddict:store(ResSecsVar#var.id,
+				     ResSecsVar,
+				     MinsBindings),
+	
+	%% io:format("Hours,Mins,Secs vars: ~p\n ~p\n ~p\n",
+	%% 		[HoursVar, MinsVar, SecsVar]),
+	
+	%% Matching Hours, Mins and Secs (in case any variable is already valuated)
+	case variables:match_vars(SecsBindings,HoursVar, ResHourVar) of
+	    false ->
+		{?FAIL};
+	    
+	    ItNewBindingsH when is_function(ItNewBindingsH) ->
+		case variables:match_vars(iterator:first(ItNewBindingsH), 
+					  MinsVar, ResMinsVar) of
+		    false ->
+			{?FAIL};
+		    ItNewBindingsM when is_function(ItNewBindingsM) ->
+			case variables:match_vars(iterator:first(ItNewBindingsM), 
+						  SecsVar, ResSecsVar) of
+			    false ->
+				{?FAIL};
+			    ItNewBindingsS when is_function(ItNewBindingsS) ->
+				{replace_bindings,ItNewBindingsS}
+			end
+		end
+	end
+
+
+
+
+
+	%%io:format("Bindings:~p~n", [Bindings])
+	%% io:format("Res1:~p~n", [Res1]),
+	%% io:format("Res2~p~n", [Res2]),
+	%% io:format("Res3:~p~n", [Res3]),
+	%% case lists:member({?FAIL}, [Res1,Res2,Res3]) of
+	%%     true ->
+	%% 	{?FAIL};
+	%%     _ ->
+	%% end
+	    
+    catch
+	A:B->
+	    io:format("[Actions] Error executing .time\nA=~p\nB=~p\n\n",
+		      [A,B]),
+	    {?FAIL}
+    end;  
+
+
+%%%%%%%%%%%%%%%%
+
+
 
 
 %%% TO_NUMBER Turns a string into a number
@@ -837,7 +1110,7 @@ execute(_AgentInfo,_Bindings,Package,Action) ->
 	{?FAIL} ->
 	    {?FAIL};
 	{ok,NewBindings} ->
-	    {update_bindings,iteraro:create_iterator([NewBindings])}
+	    {update_bindings,iterator:create_iterator([NewBindings])}
     end.
 
 
@@ -894,10 +1167,10 @@ print_elem(Var = #var{functor = Func, args = ?ISATOM}) ->
 print_elem(#var{functor = StructVar,
 		args = ?STRONGNEG}) ->
     "~"++print_elem(StructVar);		    
-print_elem(#var{functor = {Header,Tail},
+print_elem(List = #var{functor = {Header,Tail},
 	       args = ?ISLIST}) ->
-    %% io:format("PRINTINGLIST: ~p~n",
-    %% 	      [List]),
+     %% io:format("PRINTINGLIST: ~p~n",
+     %% 	       [List]),
     "["++ 
 	string:join(lists:map(fun (X) -> 
 				      print_elem(X) end,
@@ -939,7 +1212,7 @@ print_elem(#var{functor = ?NOFUNCTOR, args = ?UNBOUND, id = ID}) ->
 			   lists:flatten( ["UNBOUNDVAR",
 					   string:substr(StringID,
 							 18),"<no value>"]);   
-		       _ ->StringID++"<no value>"
+		       _ ->"<no value>"
 
 		   end
 	   end,

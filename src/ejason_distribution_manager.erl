@@ -27,16 +27,17 @@
 
 
 -record(dm_info, % dm_info
-	{agents = ordsets:new(),% Registered agents
-	 reserved_names = ordsets:new(), % Agent names not resolved yet
-	 containers = ordsets:new(),% Connected containers
-	 cachec = orddict:new(), % Name cache [{Name,Container}]
-	 %%monitored_agents = orddict:new(), 
-	 %% These agents are not monitored by the SM, therefore not monitored or
+	{agents = sets:new(),% Registered agents
+	 reserved_names = sets:new(), % Agent names not resolved yet
+	 containers = sets:new(),% Connected containers
+	 %% cachec = orddict:new(), % Name cache [{Name,Container}]
+	 %% monitored_agents = orddict:new(), 
+	 %% These agents are monitored by the SM, therefore not monitored or
 	 %% supervised by another agent. Are erased when their process dies.
+	 agent_start_info = sets:new(), 
+	 %% Contains the tuples {agentName, code} for each agent in "agents"
 
-
-	 tasks= orddict:new()
+	 tasks= dict:new()
 	}).    % tasks pending to proceed (name polls, connections...)
 
 
@@ -48,24 +49,30 @@
 %% TODO: change logics. Relying on Pids implies losing requests 
 %%       for revived agents (e.g. rely on names, but check if they are dead)
 
-dm_send(?DM, Message) -> %% Send a message to local ?DM
+dm_send(Recipient, Message)->
+    %% {H,M,S} = erlang:time(),
+    %% [{registered_name,Myself}] = erlang:process_info(self(), [registered_name]),
+    %% io:format("~p [Time: ~p:~p:~p]~nSending Message: "++
+    %% 		  "~p~n To : ~p~n~n",
+    %% 	      [Myself,H,M,S,Message,Recipient]),
+    send(Recipient, Message).
+    
+
+send(?DM, Message) -> %% Send a message to local ?DM
     {?DM,node()} ! {?DM,Message};
-dm_send(?SM, Message) -> %% Send a message to local ?SM
+send(?SM, Message) -> %% Send a message to local ?SM
     {?SM,node()} ! {?DM,Message};
-dm_send(Pid, Message) when is_pid(Pid)-> %% Between a DM and an agent
+send(Pid, Message) when is_pid(Pid)-> %% Between a DM and an agent
   %%    io:format("~nSending Message: ~p~n To agent: ~p~n~n",[Message,Pid]),
     Pid ! {?DM,Message};
-dm_send({?SM, Container}, Message) when is_atom(Container)-> % To some SM
+send({?SM, Container}, Message) when is_atom(Container)-> % To some SM
     {?SM,Container} ! {?DM,Message};
-dm_send({?DM, Container}, Message) when is_atom(Container)-> % Between DMs
+send({?DM, Container}, Message) when is_atom(Container)-> % Between DMs
   %%   io:format("~nSending Message: ~p~nTo: ~p~n~n",[Message,{?DM,Container}]),
     {?DM,Container} ! {?DM,Message};
 
-dm_send(Other,Message) ->
+send(Other,Message) ->
     io:format("[DM]Invalid Recipient: ~p~nMessage: ~p~n",[Other,Message]).
-
-  
-
 
 start()->
     register(?DM,self()),
@@ -79,8 +86,8 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 	end,
 
   
-     %% io:format("~n~n [DM] PROCESSING MESSAGE at ~p:~n~p~n",
-     %% 	      [node(),Message]),
+     %%io:format("~n~n [DM] PROCESSING MESSAGE at ~p:~n~p~n",
+      %% 	      [node(),Message]),
   
    %%  io:format("Info is: ~p~n",[Info]),
     LoopInfo =
@@ -152,7 +159,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		
 		
 		NewTasks =
-		    orddict:store(RequestID,
+		    dict:store(RequestID,
 				  SendMessageTask,
 				  Info#dm_info.tasks),
 		
@@ -173,6 +180,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     answerTo = StakeHolder,
 		     agent_name = AgentName,
 		     container = Container,
+		      
 		     code = Code}
 		  }
 	    } when is_pid(StakeHolder)->
@@ -210,12 +218,12 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				    Info#dm_info {
 				      %% 1)reserve the name  
 				      reserved_names = 
-				      ordsets:add_element(
+				      sets:add_element(
 					AgentName,
 					Info#dm_info.reserved_names),
 				      %% 2) add the new task
 				      tasks =
-				      orddict:store(
+				      dict:store(
 					RequestID,
 					NewTask,
 					Info#dm_info.tasks)},
@@ -237,12 +245,12 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				Info#dm_info{ 
 				  %% 1)reserve the name			  
 				  reserved_names = 
-				  ordsets:add_element(
+				  sets:add_element(
 				    AgentName,
 				    Info#dm_info.reserved_names),
 				  %% 2) add the new task
 				  tasks =
-				  orddict:store(
+				  dict:store(
 				    RequestID,
 				    NewTask,
 				    Info#dm_info.tasks)}
@@ -250,7 +258,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		   
 		   true ->
 			%% The request must be forwarded, if Container exists
-			case lists:member(Container, Info#dm_info.containers) of
+			case sets:is_element(Container, Info#dm_info.containers) of
 			    true ->
 				%% forward
 				dm_send({?DM, Container},{RequestID,Request}),
@@ -316,7 +324,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			%% no clash, store task while responses arrive
 			Info#dm_info{ %add new find_agent_task 
 			  tasks =
-			  orddict:store(
+			  dict:store(
 			    RequestID,
 			    %% answerTo and agent_name fields are copied
 			    NewTask#find_agent_task{
@@ -325,6 +333,56 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			    Info#dm_info.tasks)
 			 }
 		end;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Start Agent request (received by DM from SM)
+
+	    {?DM, {RequestID, 
+		   Request=
+		       #agent_start_request{
+			  answerTo = StakeHolder,
+			  agent_name = AgentName}
+		  }}->
+	     
+	     %% Look for the code of AgentName
+	     Filtered = sets:filter(fun({AgentName,Code}) -> true;
+					  (_) -> false end,
+				       Info#dm_info.agent_start_info),
+	     Response = 		 
+		 case Filtered of
+		     [] ->
+			 %% io:format("[DM] Agent ~p does not exist in
+			 %% 	   ~p", [AgentName,
+			 %% 	   sets:union(Info#dm_info.agent_start_info,
+			 %% 	   Info#dm_info.agents)]),
+			 #start_agent_response{
+			    id = RequestID,
+			    agent_name = AgentName,
+			    result = ?NOCODE
+			   };
+		     [{AgentName, AgentCode}|_] ->
+			 
+			 case spawn_agent(AgentName,AgentCode,RequestID, ?DONOTNOTIFY) of
+			     Pid when is_pid(Pid)->
+				 #start_agent_response{
+				    id = RequestID,
+				    agent_name = AgentName,
+				    result = Pid
+				   };
+			     ?NOCODE ->
+				 #start_agent_response{
+				    id = RequestID,
+				    agent_name = AgentName,
+				    result = ?NOCODE
+				   }
+			 end
+		 end,
+
+	     dm_send(StakeHolder,
+		     {RequestID,Response}),
+	     Info;
+			
+			    
+	     
 	    
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Is agent request
 	    {?DM, {RequestID,
@@ -336,7 +394,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		%% Otherwise, these type of requests are witnesses for some failure
 		Condition =
 		    is_pid(StakeHolder) or 
-		    lists:member(StakeHolder,
+		    sets:is_element(StakeHolder,
 				 InfoContainers),
 
 		if
@@ -347,9 +405,9 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				       _ ->
 					   {?DM, StakeHolder}
 				   end,
-			case ordsets:is_element(AgentName,Info#dm_info.agents) 
+			case sets:is_element(AgentName,Info#dm_info.agents) 
 			    orelse
-			    ordsets:is_element(AgentName,
+			    sets:is_element(AgentName,
 					       Info#dm_info.reserved_names)
 			    of
 			    false ->
@@ -374,8 +432,8 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			    
 			end;
 		    true ->
-			io:format("[SM] Stakeholder: ~p  Is agent Request: ~p~n"
-				 ,[StakeHolder,Request]),
+			%% io:format("[SM DEBUG] Stakeholder: ~p  Is agent Request: ~p~n",
+			%% 	  [StakeHolder,Request]),
 			Info
 		end;
 				    
@@ -386,7 +444,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     result = Result,
 		     sent_by = Container}}}   ->
 				  
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			Info; % message out of date. Ignored 
 		    {ok,Task} ->
@@ -451,11 +509,11 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     result = Result,
 		     parent_task = ParentID}}}   ->
 				  
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			Info; % message out of date. Ignored 
 		    {ok,_} ->
-			{ok,ParentTask} = orddict:find(ParentID,
+			{ok,ParentTask} = dict:find(ParentID,
 						       Info#dm_info.tasks),
 			%% Modify the send_message task after the connection
 			
@@ -497,9 +555,9 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			    end,
 			NewInfo =
 			    Info#dm_info{tasks = 
-					 orddict:store(ParentID,
+					 dict:store(ParentID,
 						       ParentTask,
-						       orddict:erase(ResponseID,
+						       dict:erase(ResponseID,
 								     Info#dm_info.tasks))},
 			process_task(NewInfo,ParentID,NewParentTask)
 		end;
@@ -541,7 +599,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		    AgentListRequest = #agent_list_request{}->
 			%% Agent Names being gathered
 
-			%% MyAgents = ordsets:union(Info#dm_info.agents,
+			%% MyAgents = sets:union(Info#dm_info.agents,
 			%% 			 Info#dm_info.reserved_names), 
 			InitiatorTask =
 			    #system_connection_initiator_task{
@@ -550,15 +608,15 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			       container = Container,
 			       agent_list_request = AgentListRequest,
 			       pending_agent_list_containers =
-				   Info#dm_info.containers,
+				   sets:to_list(Info#dm_info.containers),
 			       %% My agents will be added later on
-			       gathered_agents = orddict:new(),
-				   %% orddict:store(node(), MyAgents,
-				   %% 		 orddict:new()),
+			       gathered_agents = dict:new(),
+				   %% dict:store(node(), MyAgents,
+				   %% 		 dict:new()),
 			       
 
 			       pending_connect_to_containers =
-				   Info#dm_info.containers		       
+				   sets:to_list(Info#dm_info.containers)		       
 			 },
 
 			%% io:format("InitiatorTask: ~p~n",[InitiatorTask]),
@@ -577,13 +635,13 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     container = Container}}} when is_pid(StakeHolder)->
 
 		%% Question =
-		%%     ordsets:is_element(Container,
+		%%     sets:is_element(Container,
 		%% 		       Info#dm_info.containers) or
 		%%     (Container == self()),
 		%% io:format("Question: ~p~n",[Question]),
 		
 		{NewTask,NewContainers} =
-		    case ordsets:is_element(Container,
+		    case sets:is_element(Container,
 					    Info#dm_info.containers) or
 			(Container == self()) of
 			false ->
@@ -608,7 +666,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 						      {RequestID,
 						       MyRequest})
 				      end,
-				      Info#dm_info.containers),
+				      sets:to_list(Info#dm_info.containers)),
 
 			       
 
@@ -619,14 +677,14 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				       container = Container,
 				       pending_containers = 
 				       Info#dm_info.containers},
-			     []}
+			     sets:new()}
 		    end,
 		
 		NewInfo =
-		    Info#dm_info{tasks = orddict:store(RequestID,
-						       NewTask,
-						       Info#dm_info.tasks),
-				containers = NewContainers},
+		    Info#dm_info{tasks = dict:store(RequestID,
+						    NewTask,
+						    Info#dm_info.tasks),
+				 containers = NewContainers},
 		
 		process_task(NewInfo,RequestID,NewTask);
 	    
@@ -638,8 +696,8 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 						 container = Container}}} ->
 		%% Send response
 
-		case lists:member(StakeHolder,
-				  InfoContainers)  of
+		case sets:is_element(StakeHolder,
+				 InfoContainers)  of
 		    true ->
 			
 			
@@ -658,7 +716,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			 Response}),
 		
 		Info#dm_info{
-		  containers = ordsets:del_element(
+		  containers = sets:del_element(
 				 Container,
 				 InfoContainers)};
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% System disconnection response (from DM to DM)
@@ -667,21 +725,21 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     id = ResponseID,
 		     sent_by = Sender}}} ->
 	    
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			Info; % message out of date. Ignored 
 		    {ok, Task = #system_disconnection_task{
 			   id = ResponseID,
 			   pending_containers = Pending}}->
 			
-			NewPending = ordsets:del_element(Sender,Pending),
+			NewPending = sets:del_element(Sender,Pending),
 			NewTask =
 			    Task#system_disconnection_task{
 			      pending_containers = NewPending},
 			
 		    
 			NewTasks =
-			 orddict:store(ResponseID,
+			 dict:store(ResponseID,
 				       NewTask,
 				       Info#dm_info.tasks),
 		     
@@ -718,7 +776,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		
 		%% Create a new receiver task
 		
-		%% MyAgents = ordsets:union(
+		%% MyAgents = sets:union(
 		%% 	     Info#dm_info.agents,
 		%% 	     Info#dm_info.reserved_names),      
 		    
@@ -728,14 +786,15 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		  container = Initiator,
 		  agent_list_request = GatherRequest,
 		  check_agents_response_received = false,
-		  pending_agent_list_containers = Info#dm_info.containers,
-		  gathered_agents = orddict:new()
+		  pending_agent_list_containers = sets:to_list(
+						    Info#dm_info.containers),
+		  gathered_agents = dict:new()
 		 },
 
 		%% io:format("ConnectTask ~p~n",[ConnectTask]),
 
 		NewTasks =
-		    orddict:store(RequestID,
+		    dict:store(RequestID,
 				  ConnectTask,
 				  Info#dm_info.tasks),
 
@@ -755,7 +814,10 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		     
 		     containers = Containers}}} ->
 		
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		%% io:format("[DM] The agents running in the MAS of ~p are ~p~n",
+		%% 	  [Receiver, ReceiverAgents]),
+
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			Info; % message out of date. Ignored 
 		    {ok, Task = #system_connection_initiator_task{
@@ -787,7 +849,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		       id = RequestID, 
 		       sent_by = node(),
 		       agent_list =
-		       ordsets:union(Info#dm_info.agents,
+		       sets:union(Info#dm_info.agents,
 				     Info#dm_info.reserved_names)      
 		      },
 		     
@@ -804,7 +866,9 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		    agent_list = AgentList,
 		    sent_by = Container}}} ->
 		
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		%% io:format("[DM] the DM at ~p sends agents: ~p~n",
+		%% 	  [Container, AgentList]),
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			Info; % message out of date. Ignored 
 		    {ok,Task = #system_connection_initiator_task{
@@ -814,22 +878,20 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			%% Remove one containers from the pending containers
 		
 			NewTask =
-			    case ordsets:is_element(Container,Pending) of
+			    case sets:is_element(Container,Pending) of
 				true ->
 				    NewPending =
-					ordsets:del_element(Container,Pending),
+					sets:del_element(Container,Pending),
 
 				    Task#system_connection_initiator_task{
 				      pending_agent_list_containers = 
 				      NewPending,
 				      %% add the new agents received
 				      gathered_agents = 
-					  ordsets:merge(
-					    fun(_,List1,List2) ->
-						    lists:usort(List1++List2)
-					    end,
-					    GatheredAgents,
-					    AgentList)};
+					  dict:store(
+					    Container,
+					    AgentList,
+					    GatheredAgents)};
 				false ->
 				    Task
 			    end,
@@ -840,21 +902,19 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			
 			%% Remove one container from the pending containers
 			NewTask =
-			    case ordsets:is_element(Container,Pending) of
+			    case sets:is_element(Container,Pending) of
 				true ->
 				    NewPending =
-					ordsets:del_element(Container,Pending),
+					sets:del_element(Container,Pending),
 				    Task#system_connection_receiver_task{
 				      pending_agent_list_containers = 
 				      NewPending,
 				      %% add the new agents received
 				      gathered_agents = 
-					  ordsets:merge(
-					    fun(_,List1,List2) ->
-						    lists:usort(List1++List2)
-					    end,
-					    GatheredAgents,
-					    AgentList)};
+					  dict:store(
+					    Container,
+					    AgentList,
+					    GatheredAgents)};
 				false ->
 				    Task
 			    end,
@@ -869,8 +929,9 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		      id = RequestID,
 		      answerTo = Receiver}}} ->
 		     
-		     case orddict:find(RequestID,Info#dm_info.tasks) of
+		     case dict:find(RequestID,Info#dm_info.tasks) of
 			 error ->
+			     %io:format("ERROR checking agents"),
 			     Info; % message out of date. Ignored 
 			 {ok,Task= #system_connection_initiator_task{
 			      id = RequestID,
@@ -882,13 +943,17 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				 Task#system_connection_initiator_task{
 				   check_agents_request_received = true},
 
-			     NewTasks = orddict:store(RequestID,
+			     NewTasks = dict:store(RequestID,
 						      NewTask,
 						      Info#dm_info.tasks),
 
 			     NewInfo = Info#dm_info{tasks = NewTasks},
+			     %% io:format("Process check agents for task ~p~n",
+			     %% 	       [NewTask]),
 			     process_task(NewInfo,RequestID,NewTask);
 			 _ ->
+			     io:format("[DM ERROR] Wrong received~n"),
+
 			     %% Receiver is not the proper one
 			     Info
 		     end;
@@ -904,7 +969,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		    agents = AgentList,
 		    sent_by = Initiator}}}->
 		     
-		     case orddict:find(ResponseID,Info#dm_info.tasks) of
+		     case dict:find(ResponseID,Info#dm_info.tasks) of
 			 error ->
 			     Info; % message out of date. Ignored 
 			 {ok,Task = #system_connection_receiver_task{
@@ -918,7 +983,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				   check_agents_response_received = true,
 				   agents_in_initiator_mas = AgentList},
 
-			     NewTasks = orddict:store(ResponseID,
+			     NewTasks = dict:store(ResponseID,
 						      NewTask,
 						      Info#dm_info.tasks),
 			     
@@ -933,21 +998,34 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		       answerTo = StakeHolder,
 		       containers = ContainerList}}} ->
 
-		     %% Skip a connection to itself
-		     NewContainerList = ordsets:del_element(node(),
-							 ContainerList),
-         
+
+		NewContainersConnected =
+		    sets:del_element(
+		      %% Skip a connection to itself
+		      node(),
+		      sets:subtract(
+			sets:from_list(ContainerList),
+			Info#dm_info.containers)),
+
+		%% NewContainerList = sets:del_element(node(),
+		%% 				       ContainerList),
+		
+
+		
 		%% io:format("[DM] Node: ~p getting connected to ~p~n",
-		%% 	  [node(), NewContainerList]),
-		     connect_to(NewContainerList),
+		%% 	   [node(), sets:to_list(NewContainersConnected)]),
+		
+		connect_to(sets:to_list(NewContainersConnected)),
 		     
+		
+
 		     Response =   #connect_to_response{
 		       id = RequestID,
 		       sent_by = node()
 		      },
 		     dm_send({?DM, StakeHolder},{RequestID,Response}),
 		NewContainers = 
-		    ordsets:union(NewContainerList,
+		    sets:union(NewContainersConnected,
 				  Info#dm_info.containers),
 		%% io:format("NewContainers: ~p~n",[NewContainers]),
 		Info#dm_info{ % add containers
@@ -960,7 +1038,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		    sent_by = Container}}} ->
 		
 		
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			
 			Info; % message out of date. Ignored 
@@ -968,14 +1046,14 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 			  pending_connect_to_containers = Pending}} ->
 			%% Erase pending
 			NewPending =
-			    ordsets:del_element(Container,
-						Pending),
+			    lists:delete(Container,
+					 Pending),
 			
 			NewTask = Task#system_connection_initiator_task{
 				    pending_connect_to_containers= NewPending},
 			
 			%% io:format("Newtask: ~p~n",[NewTask]),
-			NewTasks = orddict:store(ResponseID,
+			NewTasks = dict:store(ResponseID,
 						 NewTask,
 						 Info#dm_info.tasks),
 
@@ -1017,15 +1095,15 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 	    {'DOWN',_Ref,process, {?DM,Container}, Reason} ->
 		case Reason of
 		    noconnection ->
-			%% Do nothing, as a nodedown shall be received as well
+			%% Do nothing, as a 'nodedown' shall be received as well
 			Info;
 		    _ ->
-			io:format("[DM DEBUG:] Demonitoring node: ~p [~p] due"++
-				      " to its distribution manager's death.~n",
-				  [Container, Reason]),
+			%% io:format("[DM DEBUG:] Demonitoring node: ~p [~p] due"++
+			%% 	      " to its distribution manager's death.~n",
+			%% 	  [Container, Reason]),
 			Info#dm_info{
 			  containers =
-			  ordsets:del_element(Container,
+			  sets:del_element(Container,
 					      Info#dm_info.containers)	        
 			 }
 		end;
@@ -1033,24 +1111,28 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Agent down  in the container
 
 	    {'DOWN',_Ref,process, {AgentName,_Node},Reason} ->
-		io:format("[DM DEBUG:] Demonitoring: ~p [~p]~n",[AgentName,Reason]),
+		%% ERROR: the DM dows not monitor agents but containers.
+		%% The SM monitors the local agents instead
+		io:format("++++UNREACHABLE CODE++++[DM DEBUG:] Demonitoring: ~p [~p]~n",[AgentName,Reason]),
 		Info#dm_info{
 		  agents =
-		  ordsets:del_element(AgentName,
+		  sets:del_element(AgentName,
 				      Info#dm_info.agents)
+		  
+
 		  %% %%TODO: only erase this entry when a demonitor is invoked
 		  %% monitored_agents =
-		  %% orddict:erase(AgentName,Info#dm_info.monitored_agents)
+		  %% dict:erase(AgentName,Info#dm_info.monitored_agents)
 		 };
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Container disconnected from this container
 
 	    {'nodedown',Container} ->
-		io:format("[DM DEBUG:] Demonitoring node: ~p~n",[Container]),	
+		%% io:format("[DM DEBUG:] Demonitoring node: ~p~n",[Container]),	
 		Info#dm_info{
 		  containers =
-		  ordsets:del_element(Container,
-				      Info#dm_info.containers)		  
+		      sets:del_element(Container,
+				       Info#dm_info.containers)		  
 		 };
 
 
@@ -1063,8 +1145,8 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 
 	    {?SM,{ResponseID, Response = #start_monitor_response{
 				id = ResponseID}}}->
-		
-		case orddict:find(ResponseID,Info#dm_info.tasks) of
+
+		case dict:find(ResponseID,Info#dm_info.tasks) of
 		    error ->
 			
 			Info; % message out of date. Ignored 
@@ -1078,7 +1160,7 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 				    sm_response = Response},
 			
 			%% io:format("Newtask: ~p~n",[NewTask]),
-			NewTasks = orddict:store(ResponseID,
+			NewTasks = dict:store(ResponseID,
 						 NewTask,
 						 Info#dm_info.tasks),
 			
@@ -1100,23 +1182,41 @@ start(Info = #dm_info{containers = InfoContainers}) ->
 		    Info#dm_info{ 
 		      %%delete the agent
 		      agents =
-		      ordsets:del_element(AgentName,
+		      sets:del_element(AgentName,
 					  Info#dm_info.agents)
 		     },
 		
 		Response =
 		    #erase_agent_response{
-		  sent_by = node(),
-		  dead_agent = AgentName,
-		  id = RequestID,
-		  result = ?EJASONOK
-		 },
+		       sent_by = node(),
+		       dead_agent = AgentName,
+		       id = RequestID,
+		       result = ?EJASONOK
+		      },
 		
 		dm_send(?SM,{RequestID,Response}),
 		NewInfo;
 	     
-		
+	    
 
+%%% ADDED FOR CONVENIENCE, otherwise either ?SM has its copy of containers
+%% or executes a find_agent for each agent in the supervised set.
+%% Necessary to discover if the supervised set is already supervised
+
+	    
+%%%%%%%%%%%%%%%%%%%%%%% Supervise Agent Request
+
+	    {?SM,{RequestID, Request = #supervise_agents_request{}}}->
+		
+		%% Bounce the request to all SM in connected containers
+		lists:map(fun(ContainerName) ->
+				  dm_send({?SM, ContainerName},
+					  {RequestID,Request})
+			  end,
+			  sets:to_list(
+			    sets:add_element(node(),InfoContainers))),
+		Info;
+	    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Discard other messages
     
@@ -1177,7 +1277,7 @@ process_task(Info= #dm_info{tasks = Tasks},
     
     %% Delete the send_message task
     NewTasks =
-	orddict:erase(
+	dict:erase(
 	  TaskID,
 	  Tasks),
     Info#dm_info{
@@ -1196,11 +1296,11 @@ process_task(Info= #dm_info{tasks = Tasks,
     %% Recipient not found, connection not attempted yet
     %% io:format("SendTask: ~p~n",[Task]),
     AllContainers = 
-	ordsets:add_element(
+	sets:add_element(
 	  node(),
 	  Containers),
     
-    case  ordsets:is_element(SuggestedContainer,AllContainers) of
+    case  sets:is_element(SuggestedContainer,AllContainers) of
 	true->
 	    %% do not try connection
 	    NewTask =
@@ -1216,7 +1316,7 @@ process_task(Info= #dm_info{tasks = Tasks,
 				       id_connection_task = ConnectionID},    
 	    %% Store the modified send_message_task
 	    NewTasks =
-		orddict:store(
+		dict:store(
 		  TaskID,
 		  NewTask,
 		  Tasks),
@@ -1253,7 +1353,7 @@ process_task(Info= #dm_info{tasks = Tasks},
     
     %% Delete the send_message task
     NewTasks =
-	orddict:erase(
+	dict:erase(
 	  TaskID,
 	  Tasks),
     Info#dm_info{
@@ -1294,7 +1394,7 @@ process_task(Info= #dm_info{tasks = Tasks},
     
     %% Delete the find_agent task
     NewTasks =
-	orddict:erase(
+	dict:erase(
 	  TaskID,
 	  Tasks),
     Info#dm_info{
@@ -1334,12 +1434,13 @@ process_task(Info=#dm_info{tasks = InfoTasks,
 	    %% Notify all ?SM in containers about the creation 
 	    %% of the agent in order to
 	    %% trigger the proper agent_up notifications (if applicable)
-	    notify_agent_creation(AgentName,node(), [node()|Containers]),
+	    notify_agent_creation(AgentName,node(), [node()|sets:to_list(Containers)]),
+	    %% io:format("[DM] Agent Created (notification): ~p~n",[erlang:time()]),
 
 	    NewInfo =
 		Info#dm_info{
 		  %% delete task
-		  tasks = orddict:erase(TaskID,InfoTasks)},
+		  tasks = dict:erase(TaskID,InfoTasks)},
 	    NewInfo;
 	_ ->
 	    %%could not be monitored by SM, try again.
@@ -1348,7 +1449,7 @@ process_task(Info=#dm_info{tasks = InfoTasks,
 			sm_response = no_found_in},
 	    NewInfo =
 		%% add updated task
-		Info#dm_info{tasks = ordsets:add_element(
+		Info#dm_info{tasks = sets:add_element(
 				       TaskID,
 				       NewTask,
 				       InfoTasks)},
@@ -1372,7 +1473,7 @@ process_task(Info=#dm_info{tasks = Tasks},
 	    NewTask = CreateAgentTask#create_agent_task{
 			sm_notified = true},
 	    
-	    NewInfo = Info#dm_info{tasks = orddict:store(TaskID,
+	    NewInfo = Info#dm_info{tasks = dict:store(TaskID,
 							 NewTask,
 							 Tasks)},
 	    %% agent can be created,
@@ -1392,7 +1493,7 @@ process_task(Info=#dm_info{tasks = Tasks},
 		    {TaskID,Response}),
 	    %% Delete the find_agent task
 	    NewTasks =
-		orddict:erase(
+		dict:erase(
 		  TaskID,
 		  Tasks),
 	    Info#dm_info{
@@ -1416,33 +1517,52 @@ process_task(Info=#dm_info{tasks = Tasks}, TaskID,
 
     %% Send check_agents_response to receiver DM
 
-    %% io:format("[DM] Initiator gathered agents: ~p~n",[GatheredAgents]),
+     %% io:format("[DM] Initiator gathered agents: ~p~n",[GatheredAgents]),
 
     %% My agents are added at the end to increase precision
 
-    MyAgents = ordsets:union(Info#dm_info.agents,
-			     Info#dm_info.reserved_names), 
+    MyAgents = sets:to_list(sets:union(Info#dm_info.agents,
+			     Info#dm_info.reserved_names)), 
 
+    %% io:format("Init Reg Agents: ~p~n",[Info#dm_info.agents]),
+    %% io:format("Init My Agents: ~p~n",[MyAgents]),
+  
+
+
+    InitiatorAgents =
+	dict:store(node(),
+		      MyAgents,
+		      GatheredAgents),
+    
 
 
     Response =
 	#check_agents_response{ id = TaskID,
 				sent_by = node(),
-				agents = orddict:store(node(),
-						       MyAgents,
-						       GatheredAgents)},
+				agents = 
+				    %% Sends a dict of agents in MAS1
+				    InitiatorAgents},
+				
+
 
     dm_send({?DM, ReceiverContainer},
 	    {TaskID,Response}),
 
-    %% No changes to the task ensue
+    NewConnectTask = 
+	ConnectTask#system_connection_initiator_task{
+	  gathered_agents = InitiatorAgents
+	 },
+    	
+
+    %% The gathered agents are updated
     NewTasks =
-	orddict:store(
+	dict:store(
 	  TaskID,
-	  ConnectTask,
+	  NewConnectTask,
 	  Tasks),
+    
     Info#dm_info{
-	      tasks = NewTasks};
+      tasks = NewTasks};
 
 process_task(Info=#dm_info{tasks = Tasks,
 			  containers = Containers}, TaskID,
@@ -1465,18 +1585,20 @@ process_task(Info=#dm_info{tasks = Tasks,
 	?EJASONOK ->
 
 	    ReceiverAgentsList =
-		orddict:to_list(ReceiverAgents),
+		dict:to_list(ReceiverAgents),
 
 	    GatheredAgentsList =
-		orddict:to_list(GatheredAgents),
+		dict:to_list(GatheredAgents),
 	    
-	   
 	    %% Function to notify a set of containers "ContainerList"
-	    %% the creationg of each agent from ValueAgents within 
+	    %% the creation of each agent from ValueAgents within 
 	    %% container KeyContainer
 
 	    Notify = 
 		fun (ContainerList, ContainerAgentList) ->
+			%% io:format("Containers: ~p~nCNList:~p~n",
+			%% 	  [ContainerList, ContainerAgentList]),
+			
 			lists:map(
 			  fun ({KeyContainer, ValueAgents})->
 				  notify_several_agent_creations(
@@ -1485,28 +1607,38 @@ process_task(Info=#dm_info{tasks = Tasks,
 			  ContainerAgentList)
 		  end,
     
+	    %% io:format("ConnectTask: ~p~n",
+	    %% 	      [ConnectTask]),
 
+	    %% io:format("NOTIFYING the creation of agents: ~p~n"++
+	    %% 		  "To initiating-MAS containers: ~p ~n",
+	    %% 	      [ReceiverAgentsList, [node()|Containers]]),
 	    %% Notify my connected containers about the agents in 
 	    %% the receiver MAS
-	    Notify(Containers, ReceiverAgentsList),
+	    Notify([node()|sets:to_list(Containers)], ReceiverAgentsList),
 	    
+	    %% io:format("NOTIFYING the creation of agents: ~p~n"++
+	    %% 		  "To receiving-MAS containers: ~p~n",
+	    %% 	      [GatheredAgentsList, ReceiverContainers]),
 
 	    %% Notify the agents in the receiver MAS about the agents
 	    %% in my connected container
 	    %% io:format("[DM] Notifying ~p about agents ~p~n",
-	    %% 	      [ReceiverContainer, GatheredAgentsList]),
-	    Notify(ReceiverContainers, GatheredAgentsList),
+	    %% 	      [ReceiverContainers, GatheredAgentsList]),
+	    Notify(sets:to_list(ReceiverContainers), GatheredAgentsList),
 	    
 			    
 
-	    %% Send connect_to requests
-	    AllContainers =  ordsets:union(Containers,
-					   ReceiverContainers),
+	    %% Send connect_to requests to ALL containers (except itself).
+	    %% This way, the initiator connects itself to them as well.
+	    FinalContainers =  sets:union(Containers,
+					  ReceiverContainers),
+	    AllContainers = sets:to_list(FinalContainers),
 
 	    Request = #connect_to_request{
 	      id = TaskID,
 	      answerTo = node(),
-	      containers = ordsets:add_element(node(),AllContainers)},
+	      containers = [node()|AllContainers]},
 	    
 	    
 
@@ -1522,14 +1654,15 @@ process_task(Info=#dm_info{tasks = Tasks,
 		  pending_connect_to_containers = AllContainers},
 
 	    NewTasks =
-		orddict:store(TaskID,
+		dict:store(TaskID,
 			      NewTask,
-			      Tasks),	  
-	    connect_to(ReceiverContainers),
+			      Tasks),
+	  
+	    connect_to(sets:to_list(ReceiverContainers)),
 	    
 	    NewInfo =
 		 Info#dm_info{
-		   containers = AllContainers,
+		   containers = FinalContainers,
 		   tasks = NewTasks},
 
 	    process_task(NewInfo,TaskID,NewTask);
@@ -1550,7 +1683,7 @@ process_task(Info=#dm_info{tasks = Tasks,
 
 	    %% remove task
 	    NewTasks =
-		orddict:erase(TaskID,Tasks),
+		dict:erase(TaskID,Tasks),
 
 	    Info#dm_info{  tasks = NewTasks}
     end;
@@ -1564,7 +1697,6 @@ process_task(Info=#dm_info{tasks = Tasks}, TaskID,
     %% Task completed
 
     %% Notify agent
-
     Response = #connection_response{
       id = TaskID,
       sent_by = node(),
@@ -1578,10 +1710,12 @@ process_task(Info=#dm_info{tasks = Tasks}, TaskID,
     %% Remove the task
     
     NewTasks =
-	orddict:erase(TaskID,Tasks),
+	dict:erase(TaskID,Tasks),
 
 
-    
+    %% io:format("Containers Initiator: ~p~n",
+    %% 	      [Info#dm_info.containers]),
+
     Info#dm_info{  tasks = NewTasks};	       
 
 %% SYSTEM CONNECTION (receiver tasks)
@@ -1599,34 +1733,50 @@ process_task(Info=#dm_info{tasks = Tasks,
         
     %% Calculate and send the result:
     
-    %% io:format("[DM DEBUG: connection process. ~nAgents in initiator: ~p~n"++
-    %% 		  "Agents in receiver: ~p~n",[ODAgentsInitiator, 
-    %% 					      ODGatheredAgents]),
-
 
     %% Add my own agents (done at the end, to increase precision)
     
-    MyAgents = ordsets:union(Info#dm_info.agents,
-			      Info#dm_info.reserved_names), 
-
-
+    MyAgents = sets:to_list(sets:union(Info#dm_info.agents,
+			      Info#dm_info.reserved_names)), 
+    %% io:format("Reg Agents: ~p~n",[Info#dm_info.agents]),
+    %%     io:format("My Agents: ~p~n",[MyAgents]),
+    
+    
+ 
+    ODAgentsReceiver =
+	dict:store(node(),
+		      MyAgents,
+		      ODGatheredAgents),
+    
+    %% Converted into a set to compute intersection
     AgentsInitiator =
-	ordsets:from_list(
-	  orddict:fold( fun (_Key,Value, Acc) ->
-			       Value++Acc end,
-			[],
-			ODAgentsInitiator)),
+	sets:from_list(
+	  dict:fold( fun (_Key,Value, Acc) ->
+			     Value++Acc end,
+		     [],
+		     ODAgentsInitiator)),
     
     GatheredAgents =
-	ordsets:from_list(
-	  orddict:fold( fun (_Key,Value, Acc) ->
-			       Value++Acc end,
-			[],
-			orddict:store(node(), MyAgents, ODGatheredAgents))),
+	sets:from_list(
+	  dict:fold( fun (_Key,Value, Acc) ->
+			     Value++Acc end,
+		     [],
+		     ODAgentsReceiver)),
+    
+
+     %% io:format("[DM DEBUG: connection to ~p attempted . "++
+     %% "~nAgents in initiator: ~p~n"++
+     %% 	     "Agents in receiver: ~p~n",
+     %% 	       [InitiatorContainer, AgentsInitiator, GatheredAgents]),
 
 
-    case ordsets:intersection(AgentsInitiator,GatheredAgents) of
-	[] ->
+
+    Intersection =
+	sets:intersection(AgentsInitiator,GatheredAgents),
+
+    case sets:size(Intersection) of
+	
+	0 ->
 	    %% no clash, notify initiator DM 
 	    
 	    Response = 
@@ -1634,22 +1784,47 @@ process_task(Info=#dm_info{tasks = Tasks,
 		   id = TaskID,
 		   sent_by = node(),
 		   result = ?EJASONOK,
-		   agents_in_receiver_mas = ODGatheredAgents,
-		   containers = [node()|Containers]},
+		   agents_in_receiver_mas = ODAgentsReceiver,
+		   containers = sets:add_element(node(),Containers)},
 	    dm_send({?DM,InitiatorContainer},
 		    {TaskID, Response});
+	
+	%% 	    %% Function to notify a set of containers "ContainerList"
+%% 	    %% the creation of each agent from ValueAgents within 
+%% 	    %% container KeyContainer. This happens in the receiver.
+
+%% 	    Notify = 
+%% 		fun (ContainerList, ContainerAgentList) ->
+%% 			lists:map(
+%% 			  fun ({KeyContainer, ValueAgents})->
+%% 				  notify_several_agent_creations(
+%% 				    ValueAgents, KeyContainer, ContainerList)
+%% 			    end,
+%% 			  ContainerAgentList)
+%% 		  end,
+    
+%% 	    io:format("[SM Receiver] NOTIFYING the creation of agents: ~p~n"++
+%% 			  "TO containers: ~p~n",
+%% 		      [ODAgentsInitiator, [node()|Containers]]),
+%% 	    %% Notify my connected containers about the agents in 
+%% 	    %% the receiver MAS
+%% 	    Notify([node()|Containers], ODAgentsInitiator),
+	    
+%% ***
 
 
 	NameClashes ->
 	    %% agent name clash
-	    
+%%	    io:format("[DM DEBUG] Name Clashes: ~p~n",
+%%		      [
 	    Response = 
 		#system_connection_response{ id = TaskID,
 					     sent_by = node(),
 					     result = ?NAMECLASH,
 					     agents_in_receiver_mas = 
-						 ODGatheredAgents,
-					     conflicting_agents = NameClashes,
+						 ODAgentsReceiver,
+					     conflicting_agents =
+						 sets:to_list(Intersection),
 					     containers = Containers},
 	    dm_send({?DM, InitiatorContainer},
 		    {TaskID, Response})
@@ -1657,7 +1832,7 @@ process_task(Info=#dm_info{tasks = Tasks,
 	
     %% Just delete the task
     NewTasks =
-	orddict:erase(TaskID,
+	dict:erase(TaskID,
 		      Tasks),
     
     Info#dm_info{
@@ -1681,7 +1856,7 @@ process_task(Info=#dm_info{tasks = Tasks}, TaskID,
     %% delete the task
 	 	
     NewTasks =
-	orddict:erase(TaskID,
+	dict:erase(TaskID,
 		      Tasks),
     
     Info#dm_info{
@@ -1692,9 +1867,11 @@ process_task(Info=#dm_info{tasks = Tasks}, TaskID,
 %% If no further actions are needed, maybe this function should not be
 %% invoked at all. Check it!// July 2014
 process_task(Info,TaskID,Task) ->
+    %% io:format("[DM WARNING]: No actions for task ~p~n",
+    %% 	      [Task]),
     %% No further actions needed, just add Task to Info
     Info#dm_info{
-      tasks = orddict:store(TaskID,
+      tasks = dict:store(TaskID,
 			    Task,
 			    Info#dm_info.tasks)}.
 
@@ -1737,8 +1914,10 @@ process_task(Info,TaskID,Task) ->
 connect_to([]) ->
     ok;
 connect_to([Container|List]) ->
+%%    io:format("[DM] Connecting to container ~p~n",[Container]),
     net_adm:ping(Container),
     erlang:monitor(process,{?DM,Container}),
+    %% io:format("[DM ~p] Monitoring the node: ~p~n",[node(),Container]),
     erlang:monitor_node(Container,true),
     connect_to(List).
 
@@ -1753,21 +1932,23 @@ connect_to([Container|List]) ->
 %%     #find_agent_task if a procedure to find the agent has been launched
 check_name(Info,ParentID,AgentName)->
     
-    case ordsets:is_element(AgentName,
-			    lists:append([Info#dm_info.agents,
-					  Info#dm_info.reserved_names])) of
+    case sets:is_element(AgentName,Info#dm_info.agents) orelse
+	sets:is_element(AgentName, Info#dm_info.reserved_names) of
 	true ->
 	    %% io:format("name_clash for ~p~n",[AgentName]),
 	    ?NAMECLASH; 
 	false -> 
-	    case Info#dm_info.containers of
-		[]->
+
+
+	    case sets:size(Info#dm_info.containers) of
+		0->
 		    %% io:format("no_agent for ~p~n",[AgentName]),
 		    
 		    ?NOAGENT;
-		Containers->
+		_->
 		    %% io:format("start find_agent for ~p~n",[AgentName]),
 
+		    Containers =  sets:to_list(Info#dm_info.containers),
 		    %% Start a find_agent_task
 		    IsAgentRequest =
 			#is_agent_request{id = ParentID,
@@ -1801,10 +1982,12 @@ notify_several_agent_creations(AgentList, InContainer, Containers)->
 
 
 %% Sends an agent_creation_notification to all ?DM in Containers
-%% By now, these ?DM just bounce the message to the ?SM in their container
+%% By now, these ?DM just bounces the message to the ?SM in their container
 notify_agent_creation(AgentName, InContainer, Containers)->
-    TS = erlang:now(),
-    %% io:format("[DM] The containers are: ~p~n",[Containers]),
+    TS = erlang:timestamp(),
+    %% io:format("[DM] Notify the creation of  ~p at container ~p~n"++
+    %% 	     "The notification is sent to containers:~p~n",
+    %% 	      [AgentName, InContainer, Containers]),
     Notification = #agent_creation_notification{id = TS,
 						container = InContainer,
 						agent_name = AgentName},
@@ -1820,7 +2003,7 @@ notify_agent_creation(AgentName, InContainer, Containers)->
 %% % Tests if a container belongs to the system.
 %% % Returns the new set of containers
 %% disconnect_container(Info,Request) ->
-%%     case ordsets:is_element(Request#request.info,Info#dm_info.containers) of
+%%     case sets:is_element(Request#request.info,Info#dm_info.containers) of
 %% 	false ->
 %% 	    Info#dm_info.containers; % set of containers maintained
 %% 	true ->   	    
@@ -1853,7 +2036,7 @@ notify_agent_creation(AgentName, InContainer, Containers)->
  %% Returns either an agent_list_request, the atom ?CONNECTED or ?NOCONTAINER
 connect_container(Info,RequestID,Container) ->
     %% io:format("Containers before connect: ~p~n",[Info#dm_info.containers]),
-    case ordsets:is_element(Container,Info#dm_info.containers) of
+    case sets:is_element(Container,Info#dm_info.containers) of
 	true ->
 	    ?CONNECTED;
 	false ->
@@ -1892,7 +2075,7 @@ gather_agents(#dm_info{containers = Containers},RequestID) ->
 		      dm_send({?DM,OtherContainer},
 			      {RequestID,MyRequest})
 	      end,
-	      Containers), % poll the DMs in other containers
+	      sets:to_list(Containers)), % poll the DMs in other containers
 
     MyRequest.
 
@@ -1900,7 +2083,7 @@ gather_agents(#dm_info{containers = Containers},RequestID) ->
 
 
 %% Creates a "unique" agent name that relies on the 
-%% Erlang timestamp function "erlang:now" for its uniqueness
+%% Erlang timestamp function "erlang:timestamp" for its uniqueness
 make_name()->
      "ejason_@"++variables:make_timestamp_string()++atom_to_list(node())++"@_ejason".
 
@@ -1916,17 +2099,23 @@ create_agent(Info, #create_agent_request {
 		     agent_name = AgentName,
 		     container = Container,
 		     code = Code})->
-    			    
-    case spawn_agent(AgentName,Code,CreateAgentID) of
+    %%io:format("[DM] Create Agent: ~p~n",[erlang:time()]),
+
+		    
+    case spawn_agent(AgentName,Code,CreateAgentID, ?NOTIFY) of
 	Pid when is_pid(Pid) ->
 	    %% The agent is created, but the start message is not sent.
 	    %% A start_monitor_response from SM must be received first
 	    Info#dm_info{
 	      %%add new agent and delete it from reserved names
-	      reserved_names = ordsets:del_element(AgentName,
+	      reserved_names = sets:del_element(AgentName,
 						   Info#dm_info.reserved_names),
-	      agents = ordsets:add_element(AgentName,
-					   Info#dm_info.agents)
+	      agents = sets:add_element(AgentName,
+			 		   Info#dm_info.agents),
+	      %% Add the info necessary to restart/revive the agent
+	      agent_start_info = sets:add_element(
+				   {AgentName, Code},
+				   Info#dm_info.agent_start_info)
 	     };
 	
 	?NOCODE->
@@ -1940,23 +2129,29 @@ create_agent(Info, #create_agent_request {
 				       },
 	    dm_send(StakeHolder,
 		    {CreateAgentID,Response}),
- 
+
+	    
 	    Info#dm_info{
 	      %% delete the agent name from reserved names
-	      reserved_names = ordsets:del_element(AgentName,
-						   Info#dm_info.reserved_names),
+	      reserved_names = sets:del_element(AgentName,
+						Info#dm_info.reserved_names),
+
 	      %% delete task
-	      tasks =ordsets:del_element(CreateAgentID,Info#dm_info.tasks)
+	      tasks =dict:erase(CreateAgentID,
+				Info#dm_info.tasks)
 	     }
     end.
+
+
 	    
 	
 
 %% Spawns an agent and informs ?SM (start_monitor_request)
+%% ShallNotify-> is either ?NOTIFY or ?DONOTNOTIFY if used as create_agent or start_agent
 %% Returns a PID or ?NOCODE 
 %% TODO: currently, it assumes the asl code for an agent to be
 %%       already parsed and compiled. Too strong an assumption. 
-spawn_agent(AgentName,Code,TaskID) ->
+spawn_agent(AgentName,Code,TaskID, ShallNotify) ->
     
     case whereis(AgentName) of
 	undefined ->
@@ -1995,9 +2190,11 @@ spawn_agent(AgentName,Code,TaskID) ->
     case code:ensure_loaded(list_to_atom(FileName)) of
     
         {module,_} ->
-	    Pid = spawn(list_to_atom(FileName),start,[AgentName]),
-	    %% io:format("[DM] Agent: ~p created with pid: ~p~n",
+	    Module = list_to_atom(FileName),
+	    Pid = spawn(Module,start,[AgentName]),
+	     %% io:format("[DM] Agent: ~p created (not initialized) with pid: ~p~n",
 	    %% 	      [AgentName, Pid]),
+	    %% timer:sleep(2000),
 	    %% Original Paths are restored
 	    code:set_path(OriginalPath),
 	    code:add_pathsz([Path]),
@@ -2008,11 +2205,17 @@ spawn_agent(AgentName,Code,TaskID) ->
 		    %% Register the new agent
 		    try 
 			register(AgentName,Pid),
-			Request = #start_monitor_request{
-				     id =TaskID,
-				     answerTo = node(),
-			  monitored_agent = AgentName},
-			dm_send(?SM,{TaskID,Request}),
+			case ShallNotify of
+			    ?NOTIFY ->
+				Request = #start_monitor_request{
+					     id =TaskID,
+					     answerTo = node(),
+					     monitored_agent = AgentName,
+					     agent_code = Module},
+				dm_send(?SM,{TaskID,Request});
+			    ?DONOTNOTIFY ->
+				ok
+			end,
 			Pid
 		    catch
 			_:_->
@@ -2022,13 +2225,13 @@ spawn_agent(AgentName,Code,TaskID) ->
 				    
 				    io:format("[DM DEBUG FATAL] ~p dies at init.\n",
 			     	     	      [AgentName]),
-				    spawn_agent(AgentName,Code,TaskID);
+				    spawn_agent(AgentName,Code,TaskID, ShallNotify);
 				_->
 				    %%io:format("Kill1~n"),
 				    %%Maybe some other process registered
 				    %% causing a race condition		    
 				    erlang:exit(Pid, kill),
-				    spawn_agent(AgentName,Code,TaskID)
+				    spawn_agent(AgentName,Code,TaskID, ShallNotify)
 			 
 			     end
 			    
@@ -2038,7 +2241,7 @@ spawn_agent(AgentName,Code,TaskID) ->
 		    %%io:format("Kill2~n"),
 		    erlang:exit(Pid,kill),
 		    erlang:exit(SomeOtherPid,kill),
-		    spawn_agent(AgentName,Code,TaskID)
+		    spawn_agent(AgentName,Code,TaskID, ShallNotify)
 	    end;
 	{error,_} ->
 	    
@@ -2060,15 +2263,13 @@ spawn_agent(AgentName,Code,TaskID) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 send_message(AgentName,SuggestedContainer)->
-    SendID = erlang:now(),
+    SendID = erlang:timestamp(),
     Request = 
 	#send_message_request{ id = SendID,
 			       answerTo = self(),
 			       agent_name = AgentName,
 			       suggested_container = SuggestedContainer},
-			       %% performative=Performative,
-			       %% message = Message},
-       
+			      
     
     dm_send(?DM,{SendID,Request}),
 
@@ -2092,19 +2293,35 @@ create_agent(AgentName,Container,Code)->
     CreateID.
  
 
+%% Invoked by the local SM to restart/revive an agent
+start_agent(AgentName,Container,Code)-> 
+    Request = 
+	#agent_start_request{ 
+	   answerTo = self(),
+	   agent_name = AgentName},
+    
+    StartID = Request#agent_start_request.id,
+    
+    dm_send(?DM,{StartID,Request}),
+    %% io:format("Request: ~p~n",[Request]),
+    %% Returns the ID of the request
+    StartID.
+
+
+
 %% Return ?Stutter (notfound), ?Fail (no response) or 
 %% {agentname, container,pid}  <- deprecated
 
 
 % Returns the ID of the new FindAgentTask
 find_agent(AgentName)->
-    RequestID = erlang:now(),
+    RequestID = erlang:timestamp(),
     Request = 
 	#find_agent_request{
-      id = RequestID,
-      agent_name = AgentName,
-      answerTo = self()
-     },
+	   id = RequestID,
+	   agent_name = AgentName,
+	   answerTo = self()
+	  },
     dm_send(?DM,{RequestID,Request}),
     RequestID.
 
@@ -2159,7 +2376,7 @@ get_info()->
     get_info(node()).
 
 get_info(Container) ->
-    RequestID = erlang:now(),
+    RequestID = erlang:timestamp(),
     Request = 
 	#get_info_request{
       id = RequestID,
@@ -2172,7 +2389,7 @@ get_info(Container) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% For DEBUGGING purposes
 print_info()->
-    RequestID = erlang:now(),
+    RequestID = erlang:timestamp(),
     Request = 
 	#print_info_request{
       id = RequestID
@@ -2189,11 +2406,4 @@ pretty_print_info(Info) ->
 	       Info#dm_info.agents, Info#dm_info.reserved_names]).
 
 %%%%%%%%%%%%
-
-
-%% %% Invoked by the agents after the reception of a notification from a DM
-%% process_response(#response{id = ID,
-%% 			   info = Info,
-%% 			   result = Result})->
-%%     {ID,Info,Result}.
 

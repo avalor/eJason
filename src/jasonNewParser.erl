@@ -33,10 +33,15 @@
 -module(jasonNewParser).
 
 -export(
-   [parse_internal_action/2, source_for_initial_belief/1, 
+   [parse_internal_action/2, 
+    source_for_initial_belief/1, 
     source_for_initial_goal/1,
-    make_belief/1, make_rule/1, make_event/2, make_plan/3,
-    parse_agents/1, to_polish_notation/1]).
+    make_belief/1, 
+    make_rule/1, 
+    make_event/2, 
+    make_plan/3,
+    parse_agent/2, 
+    to_polish_notation/1]).
 
 -include("include/parser.hrl").
 -include("include/ejason.hrl").
@@ -290,23 +295,38 @@ pre_parse([{formula,FunName,Terms,Label}|Expr],
     %% io:format("NewTerms: ~p~n", [NewTerms]),
     NewLabel = NewPStruct3#parsing_struct.accum,
 
+    %% The function invocations have either var IDs or BOs as parameters
     StripFun =
-	fun (#var{id = ID}) -> {ID} end,
+	fun (Self, #var{id = ID}) -> {ID};
+	    (Self,
+	     BO= #binary_operation{
+		    left_part = Left,
+		    right_part = Right}) ->
+		BO#binary_operation{
+		  left_part = Self(Self, Left),
+		  right_part = Self(Self, Right)
+		 }
+	end,
     
     Formula = 
 	case {NewTerms,NewLabel}  of
 	    {[],[]} ->
 		%% A struct without args and annots is just a ref to the functor
 		#var{id = list_to_atom("EJASONFORMULAVAR"++integer_to_list(Counter4)),
-		     functor = StripFun(NewAtom), 
+		     functor = StripFun(StripFun, NewAtom), 
 		     args =  ?ISREF, 
 		     annots = []};
 	    _ ->
 	    
 		#var{id = list_to_atom("EJASONFORMULAVAR"++integer_to_list(Counter4)),
-		     functor = StripFun(NewAtom), 
-		     args =  list_to_tuple(lists:map(StripFun,NewTerms)), 
-		     annots = lists:map(StripFun,NewLabel)}
+		     functor = StripFun(StripFun,NewAtom), 
+		     args =  list_to_tuple(
+			       lists:map(fun (V) ->
+						 StripFun(StripFun,V) end,
+					 NewTerms)), 
+		     annots = lists:map(fun (V) ->
+						 StripFun(StripFun,V) end,
+					 NewLabel)}
 	end,
 	%%make_predicate(NewAtom,NewTerms,NewLabel),
     
@@ -456,13 +476,33 @@ pre_parse_atom([{_,_Line,AtomValue}|Expr],
 		accum = [NewCode|Acc]}).
 
 
+%% pre_parse_list([{list, Header,Tail}|Expr],
+%% 	       Bindings,PStruct) when length(Header) > 1 ->
+    
+%%     %% So that lists follow the pattern {[Header],[Tail]}
+
+%%     [NewHeader|Rest] = Header,
+%%     NewTail =
+%% 	if 
+%% 	    Tail == '[]' -> 
+%% 		Rest; 
+%% 	    true ->
+%% 		Rest++Tail
+%% 	end,
+
+
+%%     pre_parse_list([{list,[NewHeader],NewTail}|Expr],
+%% 		   Bindings,PStruct); 
+
 pre_parse_list([List = {list,Header,Tail}|Expr],
-			   Bindings,PStruct)->
+		   Bindings,PStruct) ->
+
+
 %% io:format("11~n~n"),
     Counter = PStruct#parsing_struct.counter,
     Info = PStruct#parsing_struct.info,
    
-     %% io:format("Parsing List: ~p~n",[List]),
+    %%io:format("Parsing List: ~p~n",[List]),
     {NewBindings,NewPStruct} =
 	if 
 	    Header == []->
@@ -475,7 +515,7 @@ pre_parse_list([List = {list,Header,Tail}|Expr],
 				    counter=Counter+1})
 	end,
 %    io:format("NewStruct: ~p~n", [NewPStruct]),
- %   io:format("NewBindings: ~p~n", [NewBindings]),
+%    io:format("NewBindings: ~p~n", [NewBindings]),
 
     Counter2 = NewPStruct#parsing_struct.counter,
     
@@ -490,7 +530,7 @@ pre_parse_list([List = {list,Header,Tail}|Expr],
 		   counter=Counter2}};
 		 
 	    true ->
-		pre_parse([Tail], NewBindings,
+		pre_parse(Tail, NewBindings,
 			  #parsing_struct{
 				    counter=Counter2})
 	end,
@@ -532,7 +572,7 @@ pre_parse_list([List = {list,Header,Tail}|Expr],
 	lists:mapfoldl(Fun, Counter3+1,
 		       NewCodeVars),
 
-%%    io:format("ResultVariables: ~p~n",[ResultVariables]),
+    %% io:format("ResultVariables: ~p~n",[ResultVariables]),
     {TopVars,VarsInVariables} = 
 	lists:unzip(ResultVariables),
 
@@ -541,19 +581,19 @@ pre_parse_list([List = {list,Header,Tail}|Expr],
 	lists:mapfoldl(Fun, Counter4,
 		       NewCodeRest),
 
-    %% io:format("ResultRest: ~p~n",[ResultRest]),
+%% io:format("ResultRest: ~p~n",[ResultRest]),
 
     {TopRest,VarsInRest} =
 	lists:unzip(ResultRest),
 
-    %% io:format("VarsInVariables: ~p~n",[VarsInVariables]),
+ %% io:format("VarsInVariables: ~p~n",[VarsInVariables]),
 
-    %% io:format("TopVars: ~p~n",[TopVars]),
+ %% io:format("TopVars: ~p~n",[TopVars]),
 
 
-    %% io:format("VarsInRest: ~p~n",[VarsInRest]),
+ %% io:format("VarsInRest: ~p~n",[VarsInRest]),
     
-    %% io:format("TopRest: ~p~n",[TopRest]),
+ %% io:format("TopRest: ~p~n",[TopRest]),
     
     TotalVariables =
      	lists:foldl( fun (Var = #var{id = ID},Acum) ->
@@ -572,39 +612,39 @@ pre_parse_list([List = {list,Header,Tail}|Expr],
  
     EmptyListVar =
 	?EMPTYLISTVAR,
-	%% #var{ id = '[]',
+	%% #var{ id = '[]', 
 	%%       functor = [],
 	%%       args = ?ISATOM},
 
 
 
-  %%   io:format("Tail for var: ~p~n~n~n~n~n",[Tail]), 
+     %% io:format("Tail for var: ~p~n~n~n~n~n",[Tail]), 
     %% io:format("NewCodeRest: ~p~n",[NewCodeRest]), 
 
     VarID = list_to_atom("EJASONLIST"++integer_to_list(Counter)),
     NewVar =
 	#var{
-      id = VarID,
-%      functor = {[{X} ||#var{id =X} <-TopVars],
-      functor = {[X || X = #var{} <-TopVars],
-		 if
-		     Tail == '[]' ->
-			 [{'[]'}];
-		    %%TODO: if the tail is another list, try to merge them
-		     is_list(Tail) ->
-		         [Y || Y = #var{} <-TopRest];
-		     true -> %% A single Var
-			 case NewCodeRest of
-			     [RestVar =#var{args = ?UNBOUND}] ->
-				 [RestVar#var{args = ?UNBOUNDLIST}];
+	   id = VarID,
+						%      functor = {[{X} ||#var{id =X} <-TopVars],
+	   functor = {[X || X = #var{} <-TopVars],
+		      if
+			  Tail == '[]' ->
+			      [{'[]'}];
+			  %%TODO: if the tail is another list, try to merge them
+			  is_list(Tail) ->
+			      [Y || Y = #var{} <-TopRest];
+			  true -> %% A single Var
+			      case NewCodeRest of
+				  [RestVar =#var{args = ?UNBOUND}] ->
+				      [RestVar#var{args = ?UNBOUNDLIST}];
 			     _ ->
-				 NewCodeRest
-			 end
-			 %io:format("SingleVar: ~p~n",[SingleVar]),
-			 %[{SingleVar#var.id}]
-		 end},
-      args = ?ISLIST
-     },
+				      NewCodeRest
+			      end
+						%io:format("SingleVar: ~p~n",[SingleVar]),
+						%[{SingleVar#var.id}]
+		      end},
+	   args = ?ISLIST
+	  },
      %% io:format("Expr: ~p~n",[Expr]),
 
      %% io:format("Var for list: ~p~n",[NewVar]),
@@ -831,22 +871,43 @@ make_plan({TriggerType,
 	       {formula,{var,Line,VarName},[],[]}},
 	       Context,Body);
 make_plan(Trigger= {TriggerType,
-		    {formula,TriggerFunctor, TriggerArgs,TriggerAnnot}},
-		    Context,Body)->
+		    OriginalTrigger},
+	  %%  {formula,TriggerFunctor, TriggerArgs,TriggerAnnot}},
+	  Context,Body)->
     %% io:format("Trigger: ~p~nContext: ~p~nBody: ~p~n",
     %% 	      [Trigger,Context,Body]),
+    
+    %% Added to deal with plan triggers that are strong negations
+    {TriggerFunctor, TriggerArgs, TriggerAnnot} =
+	case OriginalTrigger of
+	    {formula, FTriggerFunctor, FTriggerArgs, FTriggerAnnot} ->
+		{FTriggerFunctor, FTriggerArgs, FTriggerAnnot};
+	    {strongNeg, 
+	     {formula, SNTriggerFunctor, SNTriggerArgs, SNTriggerAnnot}}  ->
+		{SNTriggerFunctor, SNTriggerArgs, SNTriggerAnnot}
+	end,
+    
 
-    NewTrigger = % all variables in the trigger are turned into formulas
-	{TriggerType,
-	 {formula,TriggerFunctor,
-	  lists:map(fun({var,Line,VarName}) ->
-			    {formula,{var,Line,VarName},[],[]};
-		       (Other) ->
-			    Other
-		    end, TriggerArgs),
-	  TriggerAnnot}},	
- 
- %   io:format("NewTrigger: ~p~n",[NewTrigger]),
+    %% all variables in the trigger are turned into formulas
+    NewTriggerVars =
+	lists:map(fun({var,Line,VarName}) ->
+			  {formula,{var,Line,VarName},[],[]};
+		     (Other) ->
+			  Other
+		  end, TriggerArgs),
+
+    NewTrigger = 
+	case OriginalTrigger of
+	    {formula, _,_, _} ->
+		{TriggerType,
+		 {formula,TriggerFunctor, NewTriggerVars, TriggerAnnot}}; 
+	    {strongNeg, _}->
+		{TriggerType,
+		 {strongNeg,
+		  {formula, TriggerFunctor,NewTriggerVars, TriggerAnnot}}}
+	end,
+     
+    %% io:format("NewTrigger: ~p~n",[NewTrigger]),
 
     {Bindings,PStruct} =
 	pre_parse([NewTrigger],[],#parsing_struct{}),
@@ -867,7 +928,9 @@ make_plan(Trigger= {TriggerType,
 					  counter = Counter2}),
     %TODO: maybe a make_event is more elegant
     [{TriggerType,Event}] = PStruct#parsing_struct.accum,
+
     [NewContext] = PStruct2#parsing_struct.accum,
+
     NewBody = PStruct3#parsing_struct.accum,
 
       %% io:format("Bindings3 (after body): ~p~n",[Bindings3]),
@@ -877,9 +940,7 @@ make_plan(Trigger= {TriggerType,
 			     variables:clean_var(X) end,
 		     Bindings3),
 	  
-    %% io:format("Bindings4 (after cleanup): ~p~n",[Bindings4]),
-
-		  
+    %% io:format("Bindings4 (after cleanup): ~p~n",[Bindings4]), 
 		  
 		      
 
@@ -889,7 +950,7 @@ make_plan(Trigger= {TriggerType,
 	  context = NewContext,
 	  formulas = NewBody,
 	  bindings = Bindings4},
-  %  io:format("Resulting Plan: ~p~n",[Plan]),
+    %% io:format("Resulting Plan: ~p~n",[Plan]),
     Plan.
 
 
@@ -1947,8 +2008,8 @@ source_for_plan_formulas([ #action{type = Type,package=Package,body = Body}|
 	    %% Needs AgentInfo to call query_bb
 		 [SBody]};
 
-	    ?ADDNOWAITTESTGOAL ->
-		{actions,no_wait_test_goal,
+	    ?ADDWAITTESTGOAL ->
+		{actions,wait_test_goal,
 	    %% Needs AgentInfo to call query_bb
 		 [SBody]};
 	    ?FAILEDACHGOAL ->
@@ -1959,7 +2020,7 @@ source_for_plan_formulas([ #action{type = Type,package=Package,body = Body}|
 		{utils,failed_test_goal,
 		 [SBody]};
 	    _ ->
-		io:format("Unknown type of formula ~p  in body: ~p~n",
+		io:format("[JNParser] Unknown type of formula ~p  in body: ~p~n",
 			  [Type,SBody]),
 		exit(unhandled_in_parse),
 		{Type,
@@ -2285,33 +2346,69 @@ process_prefix([Operator|Rest],[Operand1,Operand2|Stack])
 
 generate_agent_start(Name,EnvironmentName)->
     Module = io_lib:format("-module(~p).~n~n",[Name]),
-    Export = "-export([start/1]).\n\n",
+    Export = "-export([start/1, init_state/1]).\n\n",
     Import = "-include(\"macros.hrl\").\n"++
 	"-include(\"ejason.hrl\").\n"++
 	"-include(\"variables.hrl\").\n\n",
     NameMacro = io_lib:format("-define(NAME,~p).~n",[Name]),
     InternalMacro = io_lib:format("-define(INTERNAL,~p).~n",[Name]),
-    EnvironmentMacro =io_lib:format("-define(ENVIRONMENT,~p).~n",
+    EnvironmentMacro =io_lib:format("-define(ENVIRONMENT,~p).~n~n",
 				    [EnvironmentName]),
     Start = 
 	io_lib:format(
 	 % "start()->~n\tstart(1,~p,?NOTUNIQ). \n\n"++
 	 % "start(Num) when is_number(Num)->\nstart(Num,~p,?NOTUNIQUE);\n\n"++
 	 % "start(Name) when is_atom(Name)->\nstart(1,Name,?UNIQUE).\n\n"++
-	  "start(AgName)->~n"++
-	  %"\tAgName= utils:register_agent(Num,self(),Name,Uniqueness),~n"++
-	  "\tAgent0 = reasoningCycle:"++
-	  "start(AgName,~p,[],[],belief_base:start()),~n", 
-	  [EnvironmentName]),
-    Init = io_lib:format("\tAgent1 = add_initial_beliefs(Agent0),\n"++
-			 "\tAgent2 = add_initial_goals(Agent1),\n"++
-			 "\tAgent3 = add_rules(Agent2),\n"++
-			 "\tAgent4 = add_plans(Agent3),\n"++
-			 "\treasoningCycle:reasoningCycle(Agent4#agentRationale"++			 "{module_name=~p}).\n\n",[Name]),
-			 io_lib:format("~s~s~s~s~s~s~s~s",
+	  "%% Function that starts the agent~n"++
+	      "start(AgName)->~n"++
+	      "\tInitState =  init_state(AgName),~n"++
+	      
+	      "\t%% Synchronization step. Waits until the DM has registered the agent~n"++
+	      "\treceive~n"++
+	      "\t\t{initialize,?DM} ->~n"++
+	      "\t\t\t ok~n"++
+	      "\tend,~n"++
+	      "\treasoningCycle:reasoningCycle(InitState).~n~n",
+	  []),   
+    
+    Init = io_lib:format(
+	     "%% Function that generates the initial state of the agent~n"++
+		 "init_state(AgName) ->~n"++
+		 "\tAgent0 = reasoningCycle:"++
+		 "start(AgName,?ENVIRONMENT,[],[],belief_base:start()),~n"++ 
+		 "\tAgent1 = add_initial_beliefs(Agent0),\n"++
+		 "\tAgent2 = add_initial_goals(Agent1),\n"++
+		 "\tAgent3 = add_rules(Agent2),\n"++
+		 "\tAgent4 = add_plans(Agent3),\n"++
+		 "\tAgent4#agentRationale{module_name=?NAME}.~n~n",
+	     []),
+    io_lib:format("~s~s~s~s~s~s~s~s",
 		  [Module,Export,Import,
 		   NameMacro,InternalMacro,
 		   EnvironmentMacro,Start,Init]).   
+
+    %% Start = 
+    %% 	io_lib:format(
+    %% 	 % "start()->~n\tstart(1,~p,?NOTUNIQ). \n\n"++
+    %% 	 % "start(Num) when is_number(Num)->\nstart(Num,~p,?NOTUNIQUE);\n\n"++
+    %% 	 % "start(Name) when is_atom(Name)->\nstart(1,Name,?UNIQUE).\n\n"++
+    %% 	  "start(AgName)->~n"++
+    %% 	  "\tAgent0 = reasoningCycle:"++
+    %% 	  "start(AgName,~p,[],[],belief_base:start()),~n", 
+    %% 	  [EnvironmentName]),
+    %% Init = io_lib:format("\tAgent1 = add_initial_beliefs(Agent0),\n"++
+    %% 			 "\tAgent2 = add_initial_goals(Agent1),\n"++
+    %% 			 "\tAgent3 = add_rules(Agent2),\n"++
+    %% 			 "\tAgent4 = add_plans(Agent3),\n"++
+    %% 			 "\treasoningCycle:reasoningCycle(Agent4#agentRationale"++			 "{module_name=~p}).\n\n",[Name]),
+    %% 			 io_lib:format("~s~s~s~s~s~s~s~s",
+    %% 		  [Module,Export,Import,
+    %% 		   NameMacro,InternalMacro,
+    %% 		   EnvironmentMacro,Start,Init]).   
+
+
+
+
 
 
 split_beliefs_rules(BelsAndRules)->
@@ -2327,12 +2424,11 @@ split_beliefs_rules([Rule=#unparsed_rule{}|Rest],AccBels,AccRules) ->
 
 
 
-parse_agents([])->
-    ok;
-parse_agents([Name|Names]) when is_atom(Name)->
-    parse_agents([{Name,?DEFAULTENVIRONMENT}|Names]);
-parse_agents([{Name,EnvironmentName}|Names])->
+%parse_agent(Name) when is_atom(Name)->
+%    parse_agent({Name,?DEFAULTENVIRONMENT});
+parse_agent(Name,EnvironmentName)->
     {ok,Tokens} = scanner:getTokens(io_lib:format("~p.asl",[Name])),
+    %% io:format("Lexed Tokens: ~p~n",[Tokens]),
 
     %% io:format("INTERMEDIATE CODE:::::::::::::::::\n"),
 
@@ -2359,11 +2455,20 @@ parse_agents([{Name,EnvironmentName}|Names])->
     SAgent = io_lib:format("~s~s~n~s",
 			   [AgentPart1,AgentPart2,AgentPart3]),
   %  io:format("AGENT: ~n~s~n~n",[SAgent]),
-    AgentFileName = io_lib:format("~p.erl",[Name]),
-    {ok, AgentFile} = file:open(AgentFileName,[raw,write]),
+    AgentFileName = io_lib:format(?OUTPUTDIR++"/~p.erl",[Name]),
+    case file:open(AgentFileName,[raw,write]) of
+	{ok, AgentFile} ->
+	    ok;
+	{error, enoent} ->
+	    %% First time that eJason is invoked
+	    ok = file:make_dir(?OUTPUTDIR),
+	    {ok, AgentFile} = file:open(AgentFileName,[raw,write])
+	end,
+
     file:write(AgentFile,SAgent),
     file:close(AgentFile),
-    parse_agents(Names).
+    ok.
+   
 
 
 %% Groups rules with the same name

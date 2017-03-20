@@ -6,6 +6,7 @@
 -include("include/variables.hrl").
 -include("include/records.hrl").
 
+-define(ERLTOEJASONVAR, "ERLTOEJASONVAR").
 
 %% Checks whether the leftmost variable/atom can be matched to the
 %% rightmost one. (e.g. a(b) matches a(b)[c] 
@@ -34,8 +35,8 @@ match_vars(Bindings,
 
     %%  io:format("Bindings: ~p~n",[Bindings]),
 
-     %% io:format("\nVariables:match -> Var1: ~p~n\tVar2: ~p~n",
-     %% 		[Var1,Var2]),
+      %% io:format("\nVariables:match -> Var1: ~p~n\tVar2: ~p~n",
+      %% 		[Var1,Var2]),
 
 
     Res =    case {Func1,Func2} of
@@ -88,6 +89,11 @@ match_vars(Bindings,
 			 NewVar =
 			     Var1#var{functor = {Var2#var.id}, 
 				      args =?ISREF},
+			 %% io:format("NewVar: ~p~n",[NewVar]),
+			 %% io:format("Bindings: ~p~n",[Bindings]),
+			 %% io:format("Updated is: ~p~n",
+			 %% 	   [update(Bindings,[NewVar])]),
+
 			 iterator:create_iterator([update(Bindings,
 							  [NewVar])])
 		 end;
@@ -364,7 +370,7 @@ match_vars(Bindings,
 							 annots = []},
 
 					 NewBindings =
-					     variables:update(Bindings2,[BoundVar,
+					     update(Bindings2,[BoundVar,
 									 FinalVar1]),
 					 iterator:create_iterator([NewBindings]);
 
@@ -385,7 +391,7 @@ match_vars(Bindings,
 
 					 %% Now, the annotations must be matched,
 					 UseBindings =
-					     variables:update(Bindings2,[BoundVar,FinalVar1]),
+					     update(Bindings2,[BoundVar,FinalVar1]),
 					 
 					 match_annotations(
 					   UseBindings,
@@ -419,7 +425,7 @@ match_vars(Bindings,
 					 
 					 %% Now, the annotations must be matched,
 					 UseBindings =
-					     variables:update(Bindings2,[BoundVar,FinalVar2]),
+					     update(Bindings2,[BoundVar,FinalVar2]),
 
 					 match_annotations(
 					   UseBindings,
@@ -486,7 +492,7 @@ match_vars(Bindings,
 							 annots = []},
 
 					 NewBindings =
-					     variables:update(Bindings2,[BoundVar,
+					     update(Bindings2,[BoundVar,
 									FinalVar2]),
 					 iterator:create_iterator([NewBindings]);
 				     true ->
@@ -533,7 +539,7 @@ match_vars(Bindings,
     Res;
 	    
 match_vars(_Bindings,P1,P2) ->
-    io:format("[variables:match_vars/2, error] \nP1: ~p~nP2: ~p~n",[P1,P2]),
+     io:format("[variables:match_vars/2, error] \nP1: ~p~nP2: ~p~n",[P1,P2]),
     a = b.   
 
 
@@ -550,19 +556,19 @@ match_annotations(Bindings, [{Annot1}|Rest],ItAnnots2) ->
      %% io:format("Matching the annotation: ~p~n",[Annot1]),
      %% io:format("In the set ~p~n",[iterator:get_all(ItAnnots2)]),
 
-    Var1 = variables:get_var(Annot1,
-			     Bindings),
+    Var1 = get_var(Annot1,
+		   Bindings),
     MatchAnnot1Fun =
 	fun ({AnnotFrom2}) ->
 		%% The structs in Annots2 must be corrected 
 		%% Note: this is a possible source of inneficiency
 		%% Var2 = 
-		%%     variables:get_var(AnnotFrom2,Bindings),
+		%%     et_var(AnnotFrom2,Bindings),
 		%% {UseBindings, CorrectedVar2} =
 		%%     variables:correct_structs(Bindings,Var2),
 		%% match_vars(UseBindings, Var1,
 		%% 	   CorrectedVar2) end,
-		Var2 = variables:get_var(AnnotFrom2,Bindings),
+		Var2 = get_var(AnnotFrom2,Bindings),
 		match_vars(Bindings, Var1,
 		 	   Var2) end,
     
@@ -698,16 +704,7 @@ replace_bindings(Prefix,Bindings) ->
 obtain_replacements(Prefix,Num,VarList) ->
      %% io:format("Replacing: ~p~n",[VarList]),
     %% io:format("REPLACING FROM ~s~p \n",
-    %% 	      [Prefix,Num]),
-    %% FilterFun =
-    %% 	fun ({A,A})  ->
-    %% 		%% io:format("not counting: ~p~n",[A]),
-    %% 		false;
-    %% 	    (_Other) ->
-    %% 		%% io:format("yes, counting: ~p~n",[Other]),
-    %% 		true
-    %% 	end,
-    
+    %% 	      [Prefix,Num]), 
     
     Result = 
 	obtain_replacements(Prefix,Num,VarList,[]),
@@ -716,7 +713,6 @@ obtain_replacements(Prefix,Num,VarList) ->
     %% 	      [Prefix,length(
     %% 			lists:filter(FilterFun,Result))+Num-1]),
     Result.
-
 
 obtain_replacements(_Prefix,_Num,[],Replacements) ->
    %% io:format("Final replacements: ~p~n",[Replacements]),
@@ -739,14 +735,13 @@ obtain_replacements(Prefix,Num,[Value|Rest],Replacements) ->
 %%     my_replace_vars(Prefix,Param,Num,[]).
 
 
-%% Returns a list of NewReplacements for each binding
+%% Returns a list of NewReplacements= [{VarID, NewVarID}] for each binding
+%% It is invoked by obtain_replacements.
 %%TODO: use a more efficient way of knowing the amount of new variables
 my_replace_vars(_Prefix, _Num,
 		Var = #var{id = ID, args = Args, functor = Func},
 		Replacements) when Args == ?ISATOM, Func =:= ID;
 				   ID == '[]'->    
-  
-
     %% if 
     %% 	Args == ?ISATOM -> io:format("Atomvar spared: ~p~n",
     %% 				     [Var]);
@@ -975,6 +970,17 @@ my_replace_vars(Prefix, Num,
 			  NewVarID,
 			  ReplacementsAnnots)
     end;
+%% my_replace_vars(Prefix, Num, #binary_operation{
+%% 				left_part = Left,
+%% 				right_part = Right},Replacements) ->
+%%     %% Binary functions are fully valuated
+%%     LeftReplacements =
+%% 	my_replace_vars(Prefix,Num,Left, Replacements),
+%%     AllReplacements = 
+%% 	my_replace_vars(Prefix,Num,Left,LeftReplacements),
+
+%%     AllReplacements;
+
 my_replace_vars(Prefix, Num, {VarRef},Replacements) ->
 
     %%VarRef is not replaced, as it could be an atom
@@ -1077,7 +1083,14 @@ use_replacements({VarRef},Replacements) ->
     
     {ok,NewVarRef} = orddict:find(VarRef,Replacements),
     {NewVarRef}.
-
+%% use_replacements(BO = 
+%% 		     #binary_operation{left_part = Left,
+%% 				       right_part = Right},
+%% 		 Replacements) ->
+    
+%%     BO#binary_operation{
+%%       left_part = use_replacements(Left,Replacements),
+%%       right_part = use_replacements(Right, Replacements)}.
 
 		
 		
@@ -1120,8 +1133,8 @@ match_lists(Bindings, % One of the lists is empty
 	   )->
 
     
-    case variables:valuate(Bindings,
-	   variables:get_var(Tail,Bindings)) of
+    case valuate(Bindings,
+		 get_var(Tail,Bindings)) of
 	?EMPTYLISTVAR ->
 	    %% Tail2 must already be the empty list
    	    %%  lastelement can be matched to the emptylist,
@@ -1138,8 +1151,8 @@ match_lists(Bindings, % One of the lists is empty
 	    ?EMPTYLISTVAR
 	   )->
     
-    case variables:valuate(Bindings,
-	   variables:get_var(Tail,Bindings)) of
+    case valuate(Bindings,
+	   get_var(Tail,Bindings)) of
 	?EMPTYLISTVAR ->
 	    %% Tail2 must already be the empty list
    	    %%  lastelement can be matched to the emptylist,
@@ -1451,9 +1464,10 @@ valuate_list(Bindings,List) when is_list(List) ->
 
 
 
-%% Replaces the var references for the proper vars (not their values, except 
-%% in the case of ?ISREF)
-%% using the argument "Bindings"
+%% Replaces the var references for the proper vars (not their values,
+%% except in the case of ?ISREF) using the argument "Bindings"
+%%
+%% When a binary operation is found, it is resolved, which may fail.
 %%
 %% In the case of lists, it is checked whether the the tail references a list
 %% NOTE: badformed lists are not allowed by ejason
@@ -1497,7 +1511,7 @@ valuate(Bindings, List) when is_list(List) ->
     valuate(Bindings,{List});
 valuate(Bindings,Var = #var{functor = Func, args = Args,
 			    annots = Annots}) ->
-     %% io:format("ValuatringVar: ~p~n",[Var]),
+     %% io:format("ValuatingVar: ~p~n",[Var]),
     ValuatedVar = 
 	case Args of
 	    ?ISATOM ->
@@ -1536,9 +1550,8 @@ valuate(Bindings,Var = #var{functor = Func, args = Args,
 			OtherTail ->
 			    io:format("OtherTAIL: ~p~n",[OtherTail]),
 			  %%  a=b,
-			    io:format("[WARNING: Improper Tail ~s]~n",
-				      [actions:print_list(
-					 OtherTail)]),
+			    %% io:format("[WARNING: Improper Tail ~p]~n",
+			    %% 	      [ OtherTail]),
 			    exit(improper_list)
 		    end,
 		%%io:format("NEWTAIL: ~p~n~n~n",[NewTail]),
@@ -1564,16 +1577,35 @@ valuate(Bindings,Var = #var{functor = Func, args = Args,
     %% io:format("ValuatredVar: ~p~n",[ValuatedVar]),
 
     ValuatedVar;
-valuate(Bindings,  B={binary_operation, Operator, LeftPart,RightPart}) ->     
-    %%io:format("Valuating Binary: ~p~n",[B]),
-    {binary_operation,Operator, 
-     valuate(Bindings,LeftPart),
-     case RightPart of
-	 no_right_part ->
-	     no_right_part;
-	 _ ->
-	     valuate(Bindings,RightPart)
-     end}.
+valuate(Bindings,  
+	BO=#binary_operation{
+	      left_part = LeftPart,
+	      right_part= RightPart}) ->     
+      %% io:format("Valuating Binary: ~p~nBindings:~p~n",[BO,Bindings]),
+    Operation =
+	BO#binary_operation{
+	  left_part =  valuate(Bindings,LeftPart),
+	  right_part =
+	      case RightPart of
+		  no_right_part ->
+		      no_right_part;
+		  _ ->
+		      valuate(Bindings,RightPart)
+	      end},
+    
+    %% case Solution
+    Solution =
+	operations:resolve(Operation),
+    #var{id = Solution,
+	 functor = Solution,
+	 args = ?ISATOM,
+	 annots = []}.
+
+    %% #var{id=list_to_atom("SOLVEDBINARYOPERATION"++make_timestamp_string()),
+    %% 	 functor = Solution,
+    %% 	 args = ?ISATOM}-
+
+
 
 
 
@@ -1613,8 +1645,10 @@ valuate(Bindings,  B={binary_operation, Operator, LeftPart,RightPart}) ->
 %% It is used in the arguments of the operations
 %% ModifiedVar is valuated (i.e. bound variables are replaced)
 %%
+%% Works with BO as well.
+%%
 %% A struct like "A = 1[B]", is turned to "A = 1"
-%% Returns {NewBindings,ModifiedVar}
+%% Returns {NewBindings, ModifiedVar}
 
 correct_structs(Bindings,
 		UnvaluatedVar)->
@@ -1622,11 +1656,12 @@ correct_structs(Bindings,
     ValuatedVar = valuate(Bindings,UnvaluatedVar),
     %% io:format("Valuated Struct: ~p~n",[ValuatedVar]),
     CorrectedVar = correct_structs(ValuatedVar),
-      %% io:format("CorrectedVar: ~p~n",[CorrectedVar]),
- 
-
-    NewVars = lists:flatten(vars_to_import(CorrectedVar)),%%gather_vars(CorrectedVar)),
-%%       io:format("NewCleanVars: ~p~n",[NewVars]),
+    %% io:format("CorrectedVar: ~p~n",[CorrectedVar]),
+    
+    
+    NewVars = lists:flatten(vars_to_import(CorrectedVar)),
+    %%gather_vars(CorrectedVar)),
+       %% io:format("NewCleanVars: ~p~n",[NewVars]),
 
     CleanVar = clean_var(CorrectedVar),
 %%     io:format("Final Corrected Struct: ~p~n",[CleanVar]),
@@ -1650,7 +1685,9 @@ correct_structs(Var =
 correct_structs(NegVar = #var{functor = Func,
 			      args = ?STRONGNEG}) ->
 
-     %% io:format("NegVar: ~p~n",[NegVar]),
+      %% io:format("NegVar",[NegVar]),
+    %% io:format("CorrectFunc: ~p~n",
+    %% 	      [correct_structs(Func)]),
     CorrectedVar =
 	%% Strongneg refers to struct vars for simplicity
 	%% ~ a -> ~ a()[]
@@ -1691,7 +1728,7 @@ correct_structs(NegVar = #var{functor = Func,
 	    List = #var{args = ?ISLIST, id = ListID}->
 		%% Error should not use ~[1,2,3]
 		%% replaced by [1,2,3]
-		List#var{args = ?ISREF, functor = {ListID}}
+		NegVar#var{args = ?ISREF, functor = {ListID},annots =[]}
 	end;    
 
 
@@ -1714,7 +1751,10 @@ correct_structs(StructVar =
 		lists:map(fun correct_structs/1,
 			  Tail),
 	%% end,
-    
+    %% io:format("CorrectedHeader: ~p~nCorrectedTail: ~p~n",
+    %% 	      [CorrectedHeader, CorrectedTail]),
+
+
     StructVar#var{
       functor = {CorrectedHeader,
 		 CorrectedTail},
@@ -1862,7 +1902,7 @@ clean_var(DirtyVar = #var{
 		   Args =/= ?UNBOUND, Args =/= ?UNBOUNDLIST,
 		   Args =/= ?STRONGNEG->
 
-    %% io:format("DirtyVar: ~p~n",[DirtyVar]),
+  %%   io:format("DirtyVar: ~p~n",[DirtyVar]),
     NewFunc =
 	case Functor of
 	    {_} -> %% well-formed functor
@@ -1875,9 +1915,11 @@ clean_var(DirtyVar = #var{
 	fun(#var{id = ID}) ->
 		{ID};
 	   ({Ref}) ->
-		{Ref}
+		{Ref};
+	   (BO = #binary_operation{}) ->
+		BO
 	end,
-
+   
     NewArgs = 
 	list_to_tuple(lists:map(RefFun,tuple_to_list(Args))),
     
@@ -1917,7 +1959,7 @@ clean_var(OtherVar) ->
 %% Receives a variable/binary_operation and generates the
 %% list of bindings that can be extracted from it.
 %%
-%% Unlike in gather_vars, the variables in structs/lists 
+%% Unlike in gather_vars (<-deleted), the variables in structs/lists 
 %% are replaced by their references
 %% 
 %%
@@ -1988,22 +2030,40 @@ vars_to_import(Var =#var{functor = {Header,Tail}, args = ?ISLIST} ) ->
    %% io:format("Return: ~p~n",[Ret]),
     Ret;
 vars_to_import(Var =#var{functor = Functor, args = Args, annots = Annots} ) ->
-     %%  io:format("Vars_to_import: ~p~n",[Var]),
+       %% io:format("Vars_to_import: ~p~n",[Var]),
 
     FunImport = fun (X) ->
 			
 			vars_to_import(X) end,
     FunID =
 	fun (#var{id = ID})->
-		{ID} end,
-      %%  io:format("vars_to_import on functor\n"),
+		{ID};
+	    (BO=#binary_operation{})->
+		BO
+	end,
     VarsFunctor = FunImport(Functor),
-       %% io:format("vars_to_import on args\n"),
-    VarsArgs = lists:map(FunImport,tuple_to_list(Args)),
-    %%io:format("vars_to_import on annots\n"),
+    %% io:format("vars_to_import on functor: ~p\n",[VarsFunctor]),
+  
 
-    VarsAnnots = lists:map(FunImport, Annots),
+    VarsArgs =
+	%% Remove binary operations
+	lists:filter(
+	  fun %%( {_}) ->
+	      %% 	  true;
+	      (#binary_operation{}) ->
+		  false;
+	      (#var{}) ->
+		  true
+	  end,
+	  lists:flatten(lists:map(FunImport,tuple_to_list(Args)))),
+
+    %% io:format("vars_to_import on args: ~p\n",[VarsArgs]),
     
+    VarsAnnots = lists:flatten(lists:map(FunImport, Annots)),
+   
+    %% io:format("vars_to_import on annots; ~p\n",[VarsAnnots]),
+
+ 
     NewFunctor = FunID(Functor),
     NewArgs = list_to_tuple(lists:map(FunID,tuple_to_list(Args))),
     NewAnnots = lists:map(FunID,Annots),
@@ -2040,12 +2100,12 @@ vars_to_import(#binary_operation{left_part = Left,
 
 
 
-%% Erlang timestamp function "erlang:now"
+%% Erlang timestamp function "erlang:timestamp"
 %% Used to create unique var names
 %% Returns a string of length 18 with a timestamp
 %%TODO: move to the module utils
 make_timestamp_string()->
-    List = tuple_to_list( erlang:now()), 
+    List = tuple_to_list( erlang:timestamp()), 
     [A,B,C] =
 	lists:map(fun (Num) -> string:right(integer_to_list(Num), 6, $0) end,
 		  List),
@@ -2056,6 +2116,8 @@ make_timestamp_string()->
 
 %% Function to update a valuation with the new matching from a query to the
 %% Belief Base or the call of a plan.
+%% NOTE: This function is a bottleneck for execution performance. An alternative
+%% shall be found to increase the performance of the solution
 import_new_matchings(OriginalBindings, FirstReplacements,
 		     NewVarsPrefix, ImportBindings)->
     %%io:format("Result from Belief: ~p~n",[BeliefBindings]),
@@ -2086,7 +2148,7 @@ import_new_matchings(OriginalBindings, FirstReplacements,
     %% call. We need them, because when we valuate them the ones
     %% that are of type ?ISREF get lost.
      CallVars =
-     	[variables:get_var(ID,ImportBindings) ||
+     	[get_var(ID,ImportBindings) ||
      	    {ID} <- UsedVars],
     
       %% io:format("CallVars: ~p~n",[CallVars]),
@@ -2103,7 +2165,7 @@ import_new_matchings(OriginalBindings, FirstReplacements,
 		
 		%% io:format("ValuatingVar: ~p~n",[IsRefVar]),
 		%% io:format("Using: ~p~n",[ImportBindings]),
-		ValVar = variables:valuate(ImportBindings,
+		ValVar = valuate(ImportBindings,
 					   IsRefVar),
 		%% io:format("ValuatedVar: ~p~n",[ValVar]),
 		IsRefVar#var{functor = {ValVar#var.id}};
@@ -2122,7 +2184,7 @@ import_new_matchings(OriginalBindings, FirstReplacements,
     
         %% io:format("3\n"),
     ValuatedVars = 
-	variables:valuate_list(ImportBindings,
+	valuate_list(ImportBindings,
 			       UsedVars)++ ErasedVars,
 
 
@@ -2153,8 +2215,8 @@ import_new_matchings(OriginalBindings, FirstReplacements,
         %% io:format("NewRepls: ~p~n",[NewRepl]),
 
     RenamedVars =
-	variables:use_replacements(VarsToRename,
-				   NewRepl),
+	use_replacements(VarsToRename,
+			 NewRepl),
 
 
     %% This function maps the variables in the params
@@ -2175,7 +2237,7 @@ import_new_matchings(OriginalBindings, FirstReplacements,
 		case VarID =:= Repl2 of
 		    true->
 			%% to avoid self-refs
-			variables:get_var(VarID,OriginalBindings);
+			get_var(VarID,OriginalBindings);
 		    false ->
 			#var{id = VarID,
 			     args = ?ISREF,
@@ -2219,7 +2281,7 @@ import_new_matchings(OriginalBindings, FirstReplacements,
 
     %% Replace the original bindings with the new ones
     FinalResult =
-	variables:update(
+	update(
 	  OriginalBindings,
 	  lists:flatten(
 	    lists:append(
@@ -2340,17 +2402,16 @@ ejason_to_erl(#var{functor = StructVar,
 		end,
     list_to_tuple(StructList);
 
-ejason_to_erl(V = #var{functor = {Header,Tail},
+ejason_to_erl(V = #var{functor = {[Header],[Tail]},
 		   args = ?ISLIST}) ->
     %% io:format("[Variables.erl] VarList = ~p~n",[V]),
-    Fun = fun (X) -> ejason_to_erl(X) end,
-    lists:map(Fun, Header)++ 
+    [ejason_to_erl(Header)| 
 	case Tail of %% avoid always adding an empty list as last element
 	    [?EMPTYLISTVAR] ->
 		[];
 	    _ ->
-		lists:map(Fun, Tail)
-	end;
+		ejason_to_erl(Tail)
+	end];
 ejason_to_erl(#var{functor = ?NOFUNCTOR, args = ?UNBOUND, annots = Annots}) ->
     Fun = fun (X) -> ejason_to_erl(X) end,
     {[],[],lists:map(Fun, Annots)};
@@ -2364,6 +2425,50 @@ ejason_to_erl(#var{functor = Func, args = Args,annots = Annots}) ->
 
 
 
+%%% Turns erlang terms into eJason variables - ONLY ONE VARIABLE!
+%% NOTE: Strings are treated like lists.
+erl_to_ejason([])->
+    ?EMPTYLISTVAR;
+erl_to_ejason([LastElem]) ->
+    Time = make_timestamp_string(),
+    #var{
+       id = list_to_atom(?ERLTOEJASONVAR++Time),
+       functor =
+	   {[erl_to_ejason(LastElem)],
+	    [?EMPTYLISTVAR]},
+       args = ?ISLIST
+      };
+erl_to_ejason([Header|Tail]) ->
+    Time = make_timestamp_string(),
+    ListHeader =
+	erl_to_ejason(Header),
+    ListTail =
+	erl_to_ejason(Tail),
+		    
+    #var{
+       id = list_to_atom(?ERLTOEJASONVAR++Time),
+       functor={[ListHeader],[ListTail]},
+       args = ?ISLIST
+      };
+erl_to_ejason(Atom) when is_atom(Atom);
+			 is_number(Atom)->
+    #var{
+       id = Atom,
+       functor= Atom,
+       args = ?ISATOM,
+       annots = []
+      };
+erl_to_ejason(Other) ->
+    io:format("[variables:erl_to_ejason] There is currently no support"++
+		  " for the automatic translation of"++
+		  " an Erlang term:~n ~p into eJason.~n",[Other]).
+	
+
+
+
+
+
+
 %% Turn arguments into unbound variables
 %% e.g  a(b,c) -> a(_,_)
 keep_functor(Var = #var{args = Args}) when is_tuple(Args)->
@@ -2372,7 +2477,7 @@ keep_functor(Var = #var{args = Args}) when is_tuple(Args)->
     UnboundVarsFun = 
 	fun(_) ->
 		 #var{id = list_to_atom(
-			     "UNBOUNDVAR"++variables:make_timestamp_string()),
+			     "UNBOUNDVAR"++make_timestamp_string()),
 		      functor = ?NOFUNCTOR,
 		      args = ?UNBOUND,
 		      annots = []} end,
@@ -2399,7 +2504,7 @@ find_container_name(Bindings,Annots)->
     ContainerNameVar = #var{id =
 			    list_to_atom(
 			      "CONTAINERNAMEVAR"++
-			      variables:make_timestamp_string()),
+			      make_timestamp_string()),
 			    functor =?NOFUNCTOR,
 			    args = ?UNBOUND},
 
@@ -2411,13 +2516,13 @@ find_container_name(Bindings,Annots)->
     ContainerVar =  
 	#var{ id =   
 	      list_to_atom("CONTAINERVAR"++
-			   variables:make_timestamp_string()),
+			   make_timestamp_string()),
 	      functor = {container},
 	      args = {{ContainerNameVar#var.id}}},
 
     UseBindings =
-	variables:update(Bindings,[ContainerVar,ContainerAtomVar,
-				   ContainerNameVar]),
+	update(Bindings,[ContainerVar,ContainerAtomVar,
+			 ContainerNameVar]),
 
 
     %% Match annotations receives a lists of var references
@@ -2425,7 +2530,7 @@ find_container_name(Bindings,Annots)->
 			  Annots),
 
     FoundContainerName =
-	case   variables:match_annotations(
+	case   match_annotations(
 		 UseBindings,
 		 [{ContainerVar#var.id}],
 		 iterator:create_iterator(UseAnnots)) of
@@ -2438,10 +2543,10 @@ find_container_name(Bindings,Annots)->
 		    NewBindings ->
 			%% container(Name) found. Extract match.
 			SuggestedContainerVar =
-			    variables:valuate(
+			    valuate(
 			      NewBindings,
-			      variables:get_var(ContainerNameVar#var.id,
-						NewBindings)),
+			      get_var(ContainerNameVar#var.id,
+				      NewBindings)),
 			
 			%% %% io:format("StructVar: ~p~n",[StructVar]),
 
@@ -2473,7 +2578,7 @@ find_container_name(Bindings,Annots)->
 
 
 %%% Look for annotations "persist(Options) or demonitor(Options)"
-%%% Used by actions:execute(..., monitor)
+%%% Used by actions:execute(..., monitor_agent)
 
 %% If none is found, the equivalent of "persist(any)" is returned
 find_monitor_options(_Bindings, ?PERSISTANY)->
@@ -2496,7 +2601,8 @@ find_monitor_options(Bindings, Configuration)->
 	     end,
     
     case ErlConfiguration of
-	{demonitor,[any],_} ->
+	{demonitor,[Persist],_} when Persist == any orelse
+				     Persist == [any]->
 	    #monitor_options{
 	  persist_unknown_agent = false,
 	  persist_created_agent = false,
@@ -2505,7 +2611,8 @@ find_monitor_options(Bindings, Configuration)->
 	  persist_revived_agent = false,
 	  persist_unreachable_agent = false
 	 };
-	{persist, [Persist], _} when Persist =/= any->
+	{persist, [Persist], _} when Persist =/= any andalso
+				     Persist =/= [any]->
 	    PersistList = case Persist of
 			      _ when is_atom(Persist) ->
 				  [Persist];
@@ -2564,221 +2671,151 @@ find_monitor_options(Bindings, Configuration)->
     end.
    	    
 
+%%% Look for annotations "supervision_policy(Options)"
+%%% Used by actions:execute(..., supervise_agents)
 
+%% %% No ping does not use any 
+%% find_supervision_options(_Bindings, ?NOPING)->
+%%     #monitor_options{
+%%        persist_unknown_agent = true,
+%%        persist_created_agent = true,
+%%        persist_dead_agent = true,
+%%        persist_restarted_agent = true,
+%%        persist_revived_agent = true,
+%%        persist_unreachable_agent = true
+%%       };	
 
-    %% case find_persist_options(Bindings,Configuration) of
-    %% 	false ->
-    %% 	    case find_demonitor_options(Bindings,Configuration) of
-    %% 		false ->
-    %% 		    %% persist(any)
-    %% 		    #monitor_options{
-    %% 		  persist_unknown_agent = true,
-    %% 		  persist_dead_agent = true,
-    %% 		  persist_restarted_agent = true,
-    %% 		  persist_revived_agent = true,
-    %% 		  persist_unreachable_agent = true
-    %% 		 };
-    %% 		Options ->
-    %% 		    Options
-    %% 	    end;
-    %% 	Options->
-    %% 	    Options
-    %% end.
+find_supervision_options({supervision_policy,
+				    [OptionsList],
+				    _}) when is_list(OptionsList)->
 
+    %% io:format("[Variables] Received Supervision Options: ~p~n",
+    %% 	      [OptionsList]),
+  
+    %% Looks for some pattern in the list 
+    Filter = fun ( {Functor,[],_}) -> Functor;
+		 (Atom ) when is_atom(Atom)-> Atom;
+		 (_) -> []
+	     end,
+    
 
-%% find_persist_options(Bindings,_Configuration = #var{id = ConfID}) ->
+    PreSupervisionPolicy =
+	case lists:member(no_ping, OptionsList) of
+	    true ->
+		%% If no_ping is given, do not test divergence
+		#supervision_policy{no_ping = true};
+	    false ->
+		#supervision_policy{
+		   no_ping = false,
+		   ping = find_ping_policy(OptionsList),
+		   unblock = find_unblock_policy(OptionsList),
+		   restart = find_restart_policy(OptionsList)}
+	end,
+    
+    SupervisionPolicy =
+	PreSupervisionPolicy#supervision_policy{
+	  revival = find_revival_policy(OptionsList),
+	  restart_strategy = find_restart_strategy(OptionsList)
+	 },
+    
+    %% io:format("[Variables] Using supervision policy: ~p~n",[SupervisionPolicy]),
+    SupervisionPolicy;
+find_supervision_options(_Other)->
+    io:format("[Variables DEBUG] Default supervision options. Received: ~p~n",
+	      [_Other]),
+    #supervision_policy{
+       ping = #ping_policy{},
+       unblock = #unblock_policy{},
+       restart = #restart_policy{}
+      }.
 
-    
-          
-%% %% Create a variable persist(List) to match it to Configuration    
-%%     PersistListVar = #var{id =
-%% 			  list_to_atom(
-%% 			    "PersistList"++
-%% 			    variables:make_timestamp_string()),
-%% 			  functor =?NOFUNCTOR,
-%% 			  args = ?UNBOUND},
-    
-    
-%%     PersistAtomVar =
-%% 	#var{args = ?ISATOM, 
-%% 	     id = persist,
-%% 	     functor = persist},
-    
-%%     PersistVar =  
-%% 	#var{ id =   
-%% 	      list_to_atom("PersistVAR"++
-%% 			   variables:make_timestamp_string()),
-%% 	      functor = {persist},
-%% 	      args = {{PersistListVar#var.id}}},
-    
-    
-    
-%%     UseBindings =
-%% 	variables:update(Bindings,[PersistListVar,PersistAtomVar,PersistVar]), 
-
-    
-    
-%%     FoundPersistList =
-%% 	case   variables:match_vars(
-%% 		 UseBindings,
-%% 		 get_var(PersistListVar#var.id,UseBindings),
-%% 		 get_var(ConfID,UseBindings)) of
-%% 	    false ->
-%% 		false;
-%% 	    ItAnnots when is_function(ItAnnots) ->
-%% 		case iterator:first(ItAnnots) of
-%% 		    false ->
-%% 			false;
-%% 		    PersistBindings ->
-%% 			%% PersistList found. Extract match.
-%% 			ValuatedPersistListVar= 
-%% 			    variables:valuate(
-%% 			      PersistBindings,
-%% 			      variables:get_var(PersistListVar#var.id,
-%% 						PersistBindings)),
-%% 			case ejason_to_erl(ValuatedPersistListVar) of
-%% 			    Atom when is_atom(ValuatedPersistListVar) ->
-%% 				[Atom];
-%% 			    AList when is_list(AList) ->
-%% 				AList;
-%% 			    _ -> %% e.g persist(~a)
-%% 				false
-%% 			end
-				
-%% 		end
-%% 	end,
-    
-%%     case FoundPersistList of
-%% 	false ->
-%% 	    false ;
+find_ping_policy([])->
+    #ping_policy{};
+find_ping_policy([{ping,[Frequency, Time, MaxPings], _}|_])
+  when is_integer(Frequency),
+       is_integer(Time),
+       is_integer(MaxPings)->
+    #ping_policy{
+       frequency = Frequency,
+       time = Time,
+       maxpings = MaxPings};
+find_ping_policy([_|Rest]) ->
+    find_ping_policy(Rest).
 	
-%% 	_ when is_list(FoundPersistList) ->
-%% 	    case lists:member(any,FoundPersistList) of
-%% 		true ->
-%% 		    %% persist(any)
-%% 		    #monitor_options{
-%% 		  persist_unknown_agent = true,
-%% 		  persist_dead_agent = true,
-%% 		  persist_restarted_agent = true,
-%% 		  persist_revived_agent = true,
-%% 		  persist_unreachable_agent = true
-%% 		 };
-%% 		false->
-%% 		    #monitor_options{
-%% 		  persist_unknown_agent = lists:member(unknown_agent,
-%% 						       FoundPersistList),
-
-%% 		  persist_dead_agent = lists:member(dead_agent,
-%% 						      FoundPersistList),
-
-%% 		  persist_restarted_agent = lists:member(restarted_agent,
-%% 							 FoundPersistList),
-
-%% 		  persist_revived_agent =  lists:member(revived_agent,
-%% 							FoundPersistList),
-
-%% 		  persist_unreachable_agent =  lists:member(unreachable_agent,
-%% 							    FoundPersistList),
-%% 		  persist_created_agent = lists:member(created_agent,
-%% 						       FoundPersistList)
-%% 		 }
-%% 	    end
-%%     end.
+find_unblock_policy([])->
+    #unblock_policy{};
+find_unblock_policy([{unblock,[never], _}|_])->
+    #unblock_policy{
+       time = infinity,
+       maxunblocks = 0};
+find_unblock_policy([{unblock,[always], _}|_])->
+    #unblock_policy{
+       time = 0,
+       maxunblocks = 1};
+find_unblock_policy([{unblock,[MaxUnblocks, Time], _}|_])
+  when is_integer(Time),
+       is_integer(MaxUnblocks) ->
+    #unblock_policy{
+       time = Time,
+       maxunblocks = MaxUnblocks};
+find_unblock_policy([_|Rest]) ->
+    find_unblock_policy(Rest).
 
 
+find_restart_policy([])->
+    #restart_policy{};
+find_restart_policy([{restart,[never], _}|_])->
+    #restart_policy{
+       time = infinity,
+       maxrestarts = 0};
+find_restart_policy([{restart,[always], _}|_])->
+    #restart_policy{
+       time = 0,
+       maxrestarts = 1};
+find_restart_policy([{restart,[MaxRestarts, Time], _}|_])
+  when is_integer(Time),
+       is_integer(MaxRestarts) ->
+    #restart_policy{
+       time = Time,
+       maxrestarts = MaxRestarts};
+find_restart_policy([_|Rest]) ->
+    find_restart_policy(Rest).
 
 
-%% find_demonitor_options(Bindings,_Configuration = #var{id = ConfID}) ->
-		    
-%% %% Creates a variable demonitor(List) to match it    
-%%     DemonitorListVar = #var{id =
-%% 			    list_to_atom(
-%% 			 "DemonitorList"++
-%% 			 variables:make_timestamp_string()),
-%% 			    functor =?NOFUNCTOR,
-%% 			    args = ?UNBOUND},
-    
-%%     DemonitorAtomVar =
-%% 	#var{args = ?ISATOM, 
-%% 	     id = demonitor,
-%% 	     functor = demonitor},
+find_revival_policy([])->
+    #revival_policy{};
+find_revival_policy([{revive,[never], _}|_])->
+    #revival_policy{
+       time = infinity,
+       maxrevivals = 0};
+find_revival_policy([{revive,[always], _}|_])->
+    #revival_policy{
+       time = 0,
+       maxrevivals = 1};
+find_revival_policy([{revive,[MaxRevive, Time], _}|_])
+  when is_integer(Time),
+       is_integer(MaxRevive) ->
+    #revival_policy{
+       time = Time,
+       maxrevivals = MaxRevive};
+find_revival_policy([_|Rest]) ->
+    find_revival_policy(Rest).
 
-%%     DemonitorVar =  
-%% 	#var{ id =   
-%% 		  list_to_atom("DemonitorVAR"++
-%% 				   variables:make_timestamp_string()),
-%% 	      functor = {demonitor},
-%% 	      args = {{DemonitorListVar#var.id}}},
-    
-%%     UseBindings =
-%% 	variables:update(Bindings,[DemonitorListVar,DemonitorAtomVar,
-%% 				   DemonitorVar]), 
+find_restart_strategy([])->
+    Default = #supervision_policy{},
+    Default#supervision_policy.restart_strategy;
+find_restart_strategy([{strategy,[Strategy], _}|Rest])
+  when is_atom(Strategy) ->
+    case lists:member(Strategy, [one_for_one, one_for_all, rest_for_one]) of
+	true ->
+	    Strategy;
+	false ->
+	    find_restart_strategy(Rest)
+    end;
+find_restart_strategy([_|Rest]) ->
+    find_restart_strategy(Rest).
 
-%%     FoundDemonitorList =
-%% 	case   variables:match_vars(
-%% 		 UseBindings,
-%% 		 get_var(DemonitorListVar#var.id,UseBindings),
-%% 		 get_var(ConfID, UseBindings)) of
-%% 	    false ->
-%% 		false;
-%% 	    ItAnnots when is_function(ItAnnots) ->
-%% 		case iterator:first(ItAnnots) of
-%% 		    false ->
-%% 			false;
-%% 		    DemonitorBindings ->
-%% 			%% DemonitortList found. Extract match.
-%% 			ValuatedDemonitorListVar= 
-%% 			    variables:valuate(
-%% 			      DemonitorBindings,
-%% 			      variables:get_var(DemonitorListVar#var.id,
-%% 						DemonitorBindings)),
-%% 			case ejason_to_erl(ValuatedDemonitorListVar) of
-%% 			    Atom when is_atom(ValuatedDemonitorListVar) ->
-%% 				[Atom];
-%% 			    AList when is_list(AList) ->
-%% 				AList;
-%% 			    _ -> %% e.g demonitor(~a)
-%% 				false
-%% 			end
-		
-%% 		end
-%% 	end,
-    
-%%     case FoundDemonitorList of
-%% 	false ->
-%% 	    false ;
-	
-%% 	_ when is_list(FoundDemonitorList) ->
-%% 	    case lists:member(any,FoundDemonitorList) of
-%% 		true ->
-%% 		    %% demonitor(any)
-%% 		    #monitor_options{
-%% 		  persist_unknown_agent = false,
-%% 		  persist_dead_agent = false,
-%% 		  persist_restarted_agent = false,
-%% 		  persist_revived_agent = false,
-%% 		  persist_unreachable_agent = false
-%% 		 };
-%% 		false->
-%% 		    #monitor_options{
-%% 		  persist_unknown_agent = not lists:member(unknown_agent,
-%% 							   FoundDemonitorList),
 
-%% 		  persist_dead_agent = not lists:member(dead_agent,
-%% 							FoundDemonitorList),
 
-%% 		  persist_restarted_agent =not lists:member(restarted_agent,
-%% 							    FoundDemonitorList),
+   	    
 
-%% 		  persist_revived_agent =  not lists:member(revived_agent,
-%% 							    FoundDemonitorList),
-
-%% 		  persist_unreachable_agent = not lists:member(
-%% 						    unreachable_agent,
-%% 						    FoundDemonitorList),
-
-%% 		  persist_created_agent = not lists:member(created_agent,
-%% 							   FoundDemonitorList)
-%% 		 }
-%% 	    end
-%%     end.

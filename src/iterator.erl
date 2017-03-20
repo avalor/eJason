@@ -1,5 +1,7 @@
 -module(iterator).
 
+-include("include/macros.hrl").
+
 -export([create_iterator/1,create_iterator_fun/2,
 	 create_iterator_orddict/1,
 	concat/2,get_all/1, first/1,get_some/2,
@@ -39,11 +41,12 @@ iterator_orddict([{_Key,Value}|Rest]) ->
 
 
 
-
-
-
 % Constructs an iterator that returns a list with the results of
 % of applying Fun recursively to some value
+%% E.g. to generate the iterator R for all natural numbers:
+%% F = fun (X) -> X + 1 end.
+%% R = create_recursive_iterator(1, F).
+%% get_some(R, 4) = [1,2,3,4].
 create_recursive_iterator(InitValue,Fun)->
     try
 	fun () ->
@@ -51,6 +54,7 @@ create_recursive_iterator(InitValue,Fun)->
 		 create_recursive_iterator(Fun(InitValue),Fun)} end
     catch
 	_:_->
+	  %%  io:format("Exit1~n"),
 	    false
     end.
 
@@ -79,6 +83,12 @@ create_recursive_iterator(InitValue,Fun,Condition)->
 %% If Fun returns an iterator, it is used to return several values
 %% If Fun returns a list, its values are returned in subsequent calls
 %% If Fun returns false, for some value, ONLY that value is omitted
+%%% If ITList is {?UNBLOCK} the iterator (and its invoking ones, must stop)
+ create_iterator_fun({?UNBLOCK},Fun)  ->
+     fun () -> %% Do not backtrack again
+	     %%io:format("[ITERATOR] No more backtracking~n"),
+ 	    {{?UNBLOCK}, fun() -> false end}
+     end;
 create_iterator_fun(ItList,Fun) when is_function(ItList) ->
     fun () ->
 	    iterator_fun(ItList,Fun,fun()->false end) end;
@@ -91,42 +101,70 @@ create_iterator_fun(List, Fun) when is_list(List)->
 
 %% Fun::=  [#var] -> iterator_fun() || [term()] || term()
 iterator_fun(ItList,Fun,ChildIterator) -> 
-   case ChildIterator() of
-       false ->
-	   case ItList() of
-	       
-	       false ->
-		   false;
-	       {Elem, NewItList} ->
-%		  io:format("NewElem: ~p~n",[Elem]),
-		   case apply(Fun,[Elem]) of
-		       NewChildIterator when is_function(NewChildIterator) ->
-			   NewItFun =    
-			       fun () -> 
-				       iterator_fun(
-					 NewItList,Fun,NewChildIterator)
-			       end,
-			   NewItFun();
-		       false ->
-		%	   io:format("NewItList devuelve: ~p~n",
-		%		     [NewItList()]),
-			   iterator_fun(NewItList,Fun,ChildIterator);
-		       A ->
-			   NewIt = create_iterator(A),
-			   {Val,NewChildIterator} = NewIt(),
-			   {Val,
-			    fun () -> iterator_fun(
-					NewItList,Fun,NewChildIterator)end}
-		   end
-	   end;
-       {Value,
-        NewChildIterator}->
-	   {Value,
-	    fun () -> iterator_fun(ItList,Fun,NewChildIterator) end};	    
-       A ->
-	   io:format("[Iterator]Not dealt with: ~p~n",[A])
-   end.
-      
+    %% ChildValue =
+    %% 	try
+    %% 	    ChildIterator()
+    %% 	catch
+    %% 	    _:_ ->
+    %% 		 io:format("ITERATOR 1~n"),
+    %% 		false
+    %% 	end,
+	    
+    case ChildIterator() of
+	 {?UNBLOCK} ->
+	     io:format("[Iterator] Unblock in ChildIterator_fun~n~n"),
+	     false;
+	false ->
+	    case ItList() of
+		{{?UNBLOCK}, _} ->
+		    io:format("[Iterator] Unblock in ItList~n~n"),
+		    false;
+	
+		false ->
+		    false;
+		{Elem, NewItList} ->
+		    %%io:format("NewElem: ~p~n",[Elem]),
+		    %% NewChildIterator =
+		    %% 	try 
+		    %% 	    apply(Fun,[Elem])
+		    %% 	catch 
+		    %% 	    _:_ ->
+		    %% 		io:format("ITERATOR 2~n"),
+		    %% 		false
+		    %% 	end,
+
+		    case apply(Fun,[Elem]) of
+			NewChildIterator when is_function(NewChildIterator) ->
+			    NewItFun =    
+				fun () -> 
+					iterator_fun(
+					  NewItList,Fun,NewChildIterator)
+				end,
+			    NewItFun();
+			false ->
+			    %%	   io:format("NewItList returns: ~p~n",
+			    %%		     [NewItList()]),
+			    iterator_fun(NewItList,Fun,ChildIterator);
+			%% {?UNBLOCK} ->
+			%%     io:format("[Iterator]: unblock in Apply~n"),
+			%%    false;
+			A ->
+			    NewIt = create_iterator(A),
+			    {Val,NewChildIterator} = NewIt(),
+			    {Val,
+			     fun () -> iterator_fun(
+					 NewItList,Fun,NewChildIterator)end}
+		    end
+		end;
+	{Value,
+	 NewChildIterator}->
+	    {Value,
+	     fun () -> iterator_fun(ItList,Fun,NewChildIterator) end};	    
+	A ->
+	    io:format("[Iterator DEBUG]Not dealt with: ~p~n",[A]),
+	    ok
+    end.
+
 
 concat(It1,It2) ->
     ItIt = create_iterator([It1,It2]),

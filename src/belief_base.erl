@@ -32,7 +32,7 @@
 -record(belief,
 	{var = empty_belief, %% reference to the belief in the bindings
 	 bindings = orddict:new(), %% Bindings of the belief in the belief base
-	 id = erlang:now()
+	 id = erlang:timestamp()
 	 %%TODO: allow beliefs that contain free variables
 	}).
 
@@ -494,13 +494,15 @@ find(#belief{var = QueryRef, bindings = QueryBindings}, BB)->
 query_bb(AgentInfo=
 	 #agent_info{belief_base = BB},
 	 Bindings,Query)->
-    %% io:format("Query: ~p~n",[Query]),
+    %io:format("Query: ~p~n",[Query]),
    
 
     ValuatedQuery = 
 	variables:valuate(Bindings,Query),
 
- %%    io:format("Valuatedquery for queryBB: ~p~n",[ValuatedQuery]),
+    %% io:format("Valuatedquery for queryBB: ~p~n",[ValuatedQuery]),
+    %%io:format("[BB] Executing QueryBB~n"),
+    %%timer:sleep(2000),
     case ValuatedQuery of
 	%% the query is "true"
 	#var{functor = true,
@@ -561,9 +563,10 @@ query_bb(AgentInfo=
 	    
 	    %%io:format("[BB] Belief Base: ~p~n",[BB]),
 
-	    %% io:format("[BB] ValuatedQuery:\n ~p~n",[variables:valuate(
-	    %% 					   QueryBindings,
-	    %% 					   NewQuery)]),
+	    %% io:format("NewQuery: ~p~n",[NewQuery]),
+	    %%  io:format("[BB] ValuatedQuery:\n ~p~n",[variables:valuate(
+	    %%  					   QueryBindings,
+	    %%  					   NewQuery)]),
 
 	    %% Function to generate a non-conflicting valuate in the case that
 	    %% the query is matched
@@ -583,8 +586,8 @@ query_bb(AgentInfo=
 
 
 	    
-	    %%	io:format("Arguments: ~p~n",[Arguments]),
-
+	    %%io:format("[BB] Arguments: ~p~n",[Arguments]),
+	    
 	    ItRules = apply_rules(AgentInfo,QueryBindings,
 				  variables:get_var(NewQuery#var.id,
 						    QueryBindings)),
@@ -613,7 +616,7 @@ query_bb(AgentInfo=
 	    ItQueryResult = iterator:create_iterator_fun(FinalIterator,ReplaceFun),
 
 
-
+	    %%io:format("[BB] Ending query~n"),
 	    %% io:format("FinalIterator: ~p~n",[iterator:firs(FinalIterator)]),
 	    %% io:format("FinalIterator: ~p~n",[FinalIterator]),
 
@@ -630,16 +633,20 @@ apply_rules(AgentInfo = #agent_info{belief_base = BB},
 	    QueryBindings,Query) ->    
     
     AgentRules = BB#belief_base.rules,
-
-   
-    {RuleName} = Query#var.functor,
-    
-   
+ 
+    RuleName = 
+	case Query#var.functor of
+	    %% The query is a struct {functor, args, annots}
+	    {RName} ->
+		RName;
+	    %% The query is an atom. Invoked in the code as: ?query.
+	    RName when is_atom(RName) ->
+		RName
+	end,
+      
     Rule = orddict:find(RuleName,
 			AgentRules),
     
-    
-
 
     %% io:format("Executing rule: ~p~n",[RuleName]),
     %% io:format("Rules: ~p~n",[AgentRules]),

@@ -5,13 +5,17 @@
 -include("include/macros.hrl").
 
 getTokens(File)->
-    case file:path_open(code:get_path(),File,[read]) of
-	{ok, F, _Path} ->
-	    scan(F);
-	{error, enoent} ->
-	    io:format("File: ~s cannot be found.~n",[File]),
-	    exit(asl_file_not_found)
-    end.
+    {ok, RawTokens} =
+	case file:path_open(code:get_path(),File,[read]) of
+	    {ok, F, _Path} ->
+		scan(F);
+	    {error, enoent} ->
+		io:format("File: ~s cannot be found.~n",[File]),
+		exit(asl_file_not_found)
+	end,
+    %% io:format("RAW TOKENS: ~p~n",[lists:flatten(RawTokens)]),
+    {ok, lex(lists:flatten(RawTokens))}.
+
     
 
 scan(Inport) ->
@@ -23,19 +27,21 @@ scan(Inport, Prompt, Line1) ->
 	{eof, Line2} ->
 	    {eof, Line2};
 	{ok, Tokens, Line2} ->
+	    %%io:format("RAW TOKENS: ~p~n",[Tokens]),
+
 	    case Tokens of
 		[] ->
 		    scan(Inport, Prompt, Line2);
 		_ ->
-		    Toks = lex(Tokens),
+		    %%Toks = lex(Tokens),
 		    ResultScan = scan(Inport,Prompt,Line2),
 		    %%io:format("Result Scan: ~p~n",[ResultScan]),
 		    {Stat,Scan} = ResultScan,
 		    case Stat of
 			ok ->
-			    {ok,[[Toks]|[Scan]]};
+			    {ok,[[Tokens]|[Scan]]};
 			eof ->
-			    {ok,Toks};			    
+			    {ok,Tokens};			    
 			_ ->
 			    {Stat,Scan}
 		    end
@@ -51,7 +57,7 @@ scan(Inport, Prompt, Line1) ->
 lex([]) ->
     [];
 lex([Token | Tokens]) ->
-  %%io:format("Token: ~p~n",[Token]),
+%  io:format("Token: ~p~n",[Token]),
     case Token of
 	{'fun',Line} ->
 	    [{atom,Line,'fun'}|lex(Tokens)];
@@ -89,6 +95,14 @@ lex([Token | Tokens]) ->
 	{'--',Line}->
 	    lex([{'-',Line},{'-',Line}|Tokens]);
 	
+	{':', Line} ->
+	    case Tokens of
+		[{'-',_Line2}|MoreTokens] ->
+		    [{':-', Line}|lex(MoreTokens)];
+		_ ->
+		    [{':', Line} | lex(Tokens)]
+	    end;
+
 
 
 	{'!', Line} ->
@@ -190,6 +204,7 @@ lex([Token | Tokens]) ->
 	    [{number,Line, Int}| lex(Tokens)];
 	{float, Line, Float}->
 	    [{number,Line,Float}| lex(Tokens)];
+
 	{Category, Line, Symbol} ->
 	    [{Category, Line, Symbol} | lex(Tokens)];
 	{Other, Line} ->
@@ -202,11 +217,14 @@ lex([Token | Tokens]) ->
 
 
 %% Line skipped due to comments symbol
-skipLine(Line,[{_,Line}|MoreTokens]) ->
+skipLine(Line,[_Skipped = {_,Line}|MoreTokens]) ->
+    %% io:format("Skipping: ~p~n",[Skipped]),
     skipLine(Line,MoreTokens);
-skipLine(Line,[{_,Line,_}|MoreTokens]) ->
+skipLine(Line,[_Skipped = {_,Line,_}|MoreTokens]) ->
+    %% io:format("Skipping: {~p, ~n",[Skipped]),
     skipLine(Line,MoreTokens);
 skipLine(_Line,MoreTokens) ->
+    %% io:format("Stopped skipping at: ~p~n",[MoreTokens]),
     MoreTokens.
 
 

@@ -62,11 +62,6 @@ start(AgentName,EnvironmentName,InitialEvents, Plans,BB)->
    %% end,
 
 
-    %% Synchronization step. Waits until the DM has registered the agent
-    receive
-	{initialize,?DM} ->
-	     ok
-    end,
 
     #agentRationale{agent_name = AgentName,
 		    plans = Plans,
@@ -81,18 +76,18 @@ reasoningCycle(#agentRationale{ events = [],
 				intentions = []}= Agent)->
 
     %% The wait time is doubled every 10 iterations up to a maximum of 1 sec.
-    {NewIterations,NewWaitTime} = 
-	if 
-	    WaitTime >= 1000 ->
-		{0,WaitTime};
-	    true ->
-		if 
-		    Iterations >= 10 ->
-			{0,WaitTime *2};
-		    true ->
-			{Iterations +1,WaitTime}
-		end
-	end,
+    %% {NewIterations,NewWaitTime} = 
+    %% 	if 
+    %% 	    WaitTime >= 10000 ->
+    %% 		{0,WaitTime};
+    %% 	    true ->
+    %% 		if 
+    %% 		    Iterations >= 10 ->
+    %% 			{0,WaitTime *2};
+    %% 		    true ->
+    %% 			{Iterations +1,WaitTime}
+    %% 		end
+	%% end,
     
    %% case Retried of
    %%     [] ->
@@ -104,10 +99,10 @@ reasoningCycle(#agentRationale{ events = [],
 	   
        
 
-    timer:sleep(NewWaitTime), %% Comment to skip process sleep time
-%    io:format("Slept ~p milliseconds~n",[NewWaitTime]),
-    NewAgent = check_mailbox(Agent),
-    reasoningCycle(NewAgent#agentRationale{info={NewIterations,NewWaitTime,
+    %%timer:sleep(NewWaitTime), %% Comment to skip process sleep time
+    %io:format("Slept ~p milliseconds~n",[NewWaitTime]),
+    NewAgent = check_mailbox_or_wait(Agent),
+    reasoningCycle(NewAgent#agentRationale{info={Iterations,WaitTime,
 						?MBOXCHECKED}});
 reasoningCycle(OldAgent= #agentRationale{info={_NewIterations,_NewWaitTime,
 						MailCheck}})->
@@ -140,45 +135,59 @@ reasoningCycle(OldAgent= #agentRationale{info={_NewIterations,_NewWaitTime,
       belief_base = BB,
       agent_name = AgentName,
       module_name = ModuleName},
-    
-      
+     
 
    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
    %STEP #2: choose one event using the event selection function
    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
    {Event, NotChosenEvents} = EvSel(Events),
-	
-    %% if is_record(Event,event) ->
-     %% io:format("Chosen Event: ~p~n",[{Event#event.type, Event#event.body}]),
-    %% timer:sleep(1000),
+     %io:format("The set of events is: ~p~n The suspended events are: ~p~n",
+     %	      [Events, RetriedEvents]),
+    
+    EventPrinter = fun (SomeEvent) ->
+			   if is_record(SomeEvent,event)-> 
+			      io_lib:format("Event: ~p",
+					    [{SomeEvent#event.type, 
+					      SomeEvent#event.body}]);
+			      true ->
+				   ""
+			   end
+		   end,
+    
+    %% if is_record(Event,event) andalso
+    %%    AgentName == testVarsMatching ->
+    	    %% io:format("Chosen ~s~n",[EventPrinter(Event)]),
+    	    %% io:format("NOT CHOSEN EVENTS:~s~n",[
+    	    %% 					lists:map(EventPrinter,
+    	    %% 						  NotChosenEvents)]),
     %%    true ->
-    %% 	    ok
-    %% end,
+    %%  	    ok
+    %%  end,
     
 	    
     
 
 
-%  case AgentName of
- %     owner ->
-%	  io:format("~p BB: ~p~n",[AgentName,BB]);
-%	  io:format("~p Selected Event: ~p~n",[AgentName,Event]),
- %     _ -> 
-	  
-  %{}
-% end,
+    %%  case AgentName of
+    %%     owner ->
+    %%	  io:format("~p BB: ~p~n",[AgentName,BB]);
+    %%    io:format("~p Selected Event: ~p~n",[AgentName,Event]),
+    %%     _ -> 
+    %%   {}
+    %% end,
     
       
    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-   %STEP #3: find intended means for the chosen event. That event 
-   %         may be replaced by a failure event.** Not for the time being
+   %STEP #3: find intended means for the chosen event. 
    %
    % The intended means are a plan record where the return params and
    % the variables in the trigger and the context may be already bound
    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    {NewEvent, IntendedMeans} = 
+    IntendedMeans = 
 	findIntendedMeans(AgentInfo,Event,Plans,OptionSelector),
+
+
 
    %% case RetriedEvents of
    %%     [] ->
@@ -188,47 +197,91 @@ reasoningCycle(OldAgent= #agentRationale{info={_NewIterations,_NewWaitTime,
    %% 	   io:format("NewEvent: ~p~n",[NewEvent])
 	   	   
    %% end,
- 
-    %% Events for goal additions that cannot be matched are not dropped,
-    %% they are put back at the end of the list of retried_events.
-    %% case IntendedMeans of 
-    %% 	[] ->
-    %% 	    io:format("Retried should be incremented\n");
-    %% 	_ ->
-    %% 	    ok
-    %% end,
-	    
+    
+
 
     %% Adding event to retried_events (events that will be retried)
-    %% Events retried only when some +belief or -belief occurs
+    %% when IntendedMeans is [] 
+    %% Events retried only when some +belief or -belief occurs or when
+    %% a new plan is added to the plan base
     NewRetriedEvents =
-	case {NewEvent,IntendedMeans} of
+	case {Event,IntendedMeans} of
 	    {#event{type = ?ADDACHGOAL}, []} ->
-		lists:reverse([NewEvent|lists:reverse(RetriedEvents)]);
-	    {#event{type = ?ADDTESTGOAL}, []} ->
-		lists:reverse([NewEvent|lists:reverse(RetriedEvents)]);
+		lists:reverse([Event|lists:reverse(RetriedEvents)]);
+	    {#event{type = ?ADDWAITTESTGOAL}, []} ->
+		lists:reverse([Event|lists:reverse(RetriedEvents)]);
 	    _ ->
 		RetriedEvents
 	end,
-    
-  
-	
-    
-		    
-    
- %%io:format("INTENDED MEANS: ~p~n",[IntendedMeans]),
- % io:format("INTENDED body: ~p~n",[IntendedMeans#plan.body]),
- % io:format("INTENDED bindings: ~p~n",[IntendedMeans#plan.bindings]),
- % io:format("INTENDED return: ~p~n",[IntendedMeans#plan.return_variables]),
 
- %   io:format("NewEvent: ~p~n",[NewEvent]),
+
+    %% case NewRetriedEvents of
+    %% 	[] ->
+    %% 	    io:format("New Retried Events: []~n");
+    %% 	_ ->
+    %% 	    io:format("New Retried events:~n"),       
+    %% 	    lists:map(fun (SomeEvent)->
+    %% 			      io:format("~s~n",
+    %% 					[EventPrinter(SomeEvent)])
+    %% 		      end,
+    %% 		      NewRetriedEvents)
+    %% end,
+
+    %% io:format("EVENT:~p~nIntendedMenas~p~n",
+    %% 	      [Event, IntendedMeans]),
+
+    %% Add a new failure event if a test goal/failed test goal cannot be matched
+    NewEventSet =
+	case {Event, IntendedMeans} of
+	    {#event{type = ?ADDTESTGOAL}, []} ->
+		TestGoalFailureEvent = make_failure_event(Event),
+		[TestGoalFailureEvent|NotChosenEvents];
+	    {#event{type = ?FAILEDTESTGOAL}, []} ->
+		PlanFailureEvent = make_failure_event(Event),
+		[PlanFailureEvent|NotChosenEvents];
+	    _  ->
+		NotChosenEvents
+	end,
+    
+    %% Agent used after intended means identification
+    IMAgent =
+	Agent#agentRationale{
+	  events = NewEventSet,
+	  retried_events = NewRetriedEvents},
+       
+    
+    
+	    
+    %% if AgentName == silly ->
+    %% 	    %% io:format("[RC ~p] INTENDED MEANS: ~p~n",
+    %% 	    %% 	      [AgentName, IntendedMeans]),
+    %% 	    case IntendedMeans of
+    %% 		[] ->
+    %% 		    "[RC] IntendedMeans: []";
+    %% 		_ when is_record(IntendedMeans,plan)->
+    %% 		    io:format("[RC ~p] INTENDED body: ~p~n",
+    %% 			      [AgentName,
+    %% 			       IntendedMeans#plan.body]);
+    %% 		_ ->
+		    
+    %% 		    io:format("[RC ~p] INTENDED body: ~p~n",
+    %% 			      [AgentName,
+    %% 			       IntendedMeans])
+
+    %% io:format("INTENDED bindings: ~p~n",[IntendedMeans#plan.bindings]),
+    %% io:format("INTENDED return: ~p~n",[IntendedMeans#plan.return_variables]),
+    %% 		end;
+    %%    true -> ok
+    %% end,
+	    
+    %%   io:format("NewEvent: ~p~n",[NewEvent]),
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %STEP #4: process intended means (create new/update intention stack..)
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     AllIntentions = 
-	processIntendedMeans(NewEvent,Intentions,IntendedMeans),
- % io:format("All Intentions: ~p~n",[AllIntentions]),
+	processIntendedMeans(Event,Intentions,IntendedMeans),
+     %%io:format("All Intentions: ~p~n",[AllIntentions]),
     
 
 
@@ -239,36 +292,34 @@ reasoningCycle(OldAgent= #agentRationale{info={_NewIterations,_NewWaitTime,
 
     case IntentionSelector(AllIntentions) of
 	{{terminate,kill},_}->
-	    io:format("Agent ~p killed.~n",[Agent#agentRationale.agent_name]);
+	    ok;
+	%% io:format("Agent ~p killed.~n",
+	%%[IMAgent#agentRationale.agent_name]);
 	{{terminate,kill,TestPid},_} when is_pid(TestPid)->
 	    TestPid ! {killed, #agentRationale.agent_name};
 	    %io:format("Agent ~p killed. Answer sent to ~p~n",
 	%	      [Agent#agentRationale.agentName,TestPid]);
 	[] ->
 	   % reasoningCycle(Agent);
-	    ?MODULE:reasoningCycle(Agent#agentRationale{
-				     events = NotChosenEvents,
-				     retried_events = NewRetriedEvents,
+	    ?MODULE:reasoningCycle(IMAgent#agentRationale{
 				     info={0,1,?MBOXNOTCHECKED}});
 	
 	{Intention,NotChosenIntentions} ->
-%	    io:format("Chosen Intention: ~p~n",[Intention]),
+	    %io:format("Chosen Intention: ~p~n",[Intention]),
 	    
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %STEP #6: execute the intention.
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 	    UseAgent  =
-		Agent#agentRationale
-		  {events = NotChosenEvents,
-		   retried_events = NewRetriedEvents,
-		   intentions = NotChosenIntentions},
+		IMAgent#agentRationale
+		  {intentions = NotChosenIntentions},
     
 	    %% New agent may contain new events/beliefs
 	    %% as result of the execution
 	    %% of a critical section
 	   {NewAgent,Changes} = executeIntention(UseAgent,Intention),
-	   %io:format("Result from Execute intention is ~p~n",[Result]),
+	   %io:format("Result from Execute intention is ~p~n",[Changes]),
 
 
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -296,8 +347,6 @@ reasoningCycle(OldAgent= #agentRationale{info={_NewIterations,_NewWaitTime,
 
 
 
-
-
 %% Generates an iterator that can compute all applicable plans
 findApplicablePlans(AgentInfo,
 		    #event{type = Type,body=EBody},PlanList)->
@@ -307,7 +356,7 @@ findApplicablePlans(AgentInfo,
     %%	  io:format("BB: ~p~nType: ~p~nBody: ~p~nPlan: ~p~n",
     %%   [BB,Type,EBody,PlanList]),
 
-     %% io:format("FindAppPlans: EVENTBODY: ~p~n",[EBody]),
+    %% io:format("[RC] FindAppPlans: EVENTBODY: ~p~n",[EBody]),
 
 
     %% The variables in the body of the event must be replaced
@@ -331,15 +380,19 @@ findApplicablePlans(AgentInfo,
 	variables:vars_to_import(NewEventBody), 
 
 
-    %%  io:format("Plan Type: ~p~n",[Type]),
+    %% io:format("Plan Type: ~p~n",[Type]),
     %% io:format("Plan Body: ~p~n",[NewEventBody]),
     %% io:format("EventBodyVars: ~p~n",[EventBodyVars]),
-
+    
    UseType =
 	case Type of
 	    ?ADDINTENTIONGOAL ->
 		%% Add new intention must be changed here
 		?ADDACHGOAL;
+	    ?ADDWAITTESTGOAL ->
+		%% Add wait test goal must be changed here
+		?ADDTESTGOAL;
+
 	    _ ->
 		Type
 	end,
@@ -347,11 +400,15 @@ findApplicablePlans(AgentInfo,
     ItPlans = 
 	case orddict:find(UseType,PlanList) of
 	    {ok,TypePlans} ->
+		%% io:format("Plans for that type: ~p~n",
+		%% 	  [TypePlans]),
 		%% Plans with the same type as the event
 		iterator:create_iterator(TypePlans);
 	    error ->
+		%% io:format("No plans of that type~n"),
 		iterator:create_iterator([])
 	end,
+    
 
 
 
@@ -399,17 +456,20 @@ match_plan(AgentInfo,EventType,EventBody,
 				 AllBindings), FirstContextFun],
     
 		
-
-    
+    %% io:format("[RC] Checking trigger + context~n"),
+    %% timer:sleep(2000),
     case apply(conditions,trigger,Params) of
 	false -> 
-	    %% io:format("Not Applicable~n"),
+	     %% io:format("[RC] Trigger/Context not matched (Plan not Applicable)~n"),
     	    false; % The plan is not applicable
     
-	ItBindings when is_function(ItBindings) -> % The trigger/context matches
-    	    %% io:format("Matched Trigger\n"),
+	ItBindings when is_function(ItBindings) -> % The trigger matches
+    	     %% io:format("[RC]Matched Trigger\n"),
+	    	    
     	    PlanFun = 
     		fun (NewBindings) when is_list(NewBindings)->
+			%% io:format("[RC]Bindings for Plan: ~p\n", [NewBindings]),
+			
 	       		%% The plan is executed using NewBindings
     			Plan#plan{bindings = NewBindings};
     		    %% (false) ->
@@ -459,6 +519,11 @@ match_plan(AgentInfo,EventType,EventBody,
 %%
 processIntendedMeans(_Event,Intentions,[]) ->
     Intentions;
+%% Instead of a plan, the intended means is a new intention, computed
+%% after matching a retried wait_test_goal
+processIntendedMeans(_Event,Intentions,{?ADDINTENTION,
+ 					NewIntention}) ->
+     [NewIntention|Intentions];
 processIntendedMeans(_Event,Intentions,{terminate,kill}) ->
     I = [{terminate,kill}|lists:reverse(Intentions)], 
     %% Terminate only when there are no more intentions
@@ -529,7 +594,7 @@ processIntendedMeans(Event,Intentions,
 executeIntention(Agent,Intention = [PIPlan|_RestPIP])->
 %    io:format("Executing Intention: ~p~n",[Intention]),
     Valuation = PIPlan#piPlan.valuation,
-    %% io:format("Agent is: ~p~n",[Agent]),
+    %io:format("Agent is: ~p~n",[Agent]),
 
     AgentInfo = #agent_info{
       belief_base = Agent#agentRationale.belief_base,
@@ -541,7 +606,7 @@ executeIntention(Agent,Intention = [PIPlan|_RestPIP])->
     case PIPlan#piPlan.formulas of
 	[{critical_section, Formulas}|_]->
 
-	    CriticalID =erlang:now(),
+	    CriticalID =erlang:timestamp(),
 		
 	    %% A "new intention" is created with the formulas in the 
 	    %% critical section. This section is not left until all
@@ -556,27 +621,42 @@ executeIntention(Agent,Intention = [PIPlan|_RestPIP])->
 	    {NewAgent,processAnswer(Intention,Result)};
 	[{Module,Fun,Args}|_] ->
 	    
-	    %% io:format("Formula: ~p ~p~n",[Module,Fun] ),
-	    %% io:format("AgentInfo given: ~p~n",[AgentInfo]),
-	    Result = case Module of
-			 %%Body Formulas are either:
-			 actions -> 
-			     %% Internal/External actions 
-			     apply(Module,Fun,[AgentInfo,Valuation|Args]);
-			 operations ->
-			     %% Arithmetic/Logical operationcs
-			     apply(Module,Fun,[Valuation|Args]);
-			 utils ->
-			     %% Add/Remove goals/beliefs 
-			     apply(Module,Fun,[Valuation|Args]);
-			 Other ->
-			     io:format("[RC DEBUG: wrong body formula: ~p~n",
-				       [{Module,Fun,Args}]),
-			     timer:sleep(5000),
-			     exit(error)
-		     end,
+	     %% io:format("[RC ~p] Executing formula: ~p ~p~n",
+	     %% 	      [AgentInfo#agent_info.agent_name,Module,Fun] ),
+	     %% io:format("[RC ~p] Args: ~p~nValuation: ~p~n",
+	     %% 	      [AgentInfo#agent_info.agent_name,Args,Valuation] ),
+	    
+	    
+	     %% io:format("AgentInfo given: ~p~n",[AgentInfo]),
+	    Result = 
+		try
+		    case Module of
+			%%Body Formulas are either:
+			actions -> 
+			    %% Internal/External actions 
+			    apply(Module,Fun,[AgentInfo,Valuation|Args]);
+			operations ->
+			    %% Arithmetic/Logical operationcs
+			    apply(Module,Fun,[Valuation|Args]);
+			utils ->
+			    %% Add/Remove goals/beliefs 
+			    apply(Module,Fun,[Valuation|Args]);
+			Other ->
+			    io:format("[RC DEBUG: wrong body formula: ~p~n",
+				      [{Module,Fun,Args}]),
+			    timer:sleep(5000),
+			    exit(error)
+		    end
+		catch
+		    _:_->
+			%% io:format("[~p] ExecuteIntentionFailed for: ~p~n",
+			%% 	  [?MODULE,Intention]),
+			{?FAIL}
+		end,
+	    						   
+		    
 			 
-%%	    io:format("Result of execution: ~p~n",[Result]),
+	     %% io:format("Result of execution: ~p~n",[Result]),
 	    {Agent,processAnswer(Intention, Result)};
 
 	[] ->
@@ -657,7 +737,7 @@ execute_critical_section(Agent, Intention = [#piPlan{id = CriticalID}|_])->
 %% Removes the last executed formula from the body of the PIP 
 %% and removes the PIP after the execution of the last formula.
 %%
-%% Returns either {deleteIntention, []} or {addIntention,_}
+%% Returns either [{deleteIntention, []}] or [{addIntention,_}]
 furtherInstantiatePlan([])->  
     [{deleteIntention,[]}];
 furtherInstantiatePlan(
@@ -667,7 +747,7 @@ furtherInstantiatePlan(
 		   replacements = Replacements}
 		}|RestPIP])->
 
-    %%    io:format("Instantiate with return_params: ~p~n",[RetParams]),
+    %io:format("Instantiate with return_params: ~p~n",[Replacements]),
     %%  {[NewValuation],RestFormulas} = 
     %%  io:format("Formulas: ~p~n",[Formulas]),
     NewIntention = 
@@ -735,10 +815,18 @@ processAnswer(Intention,Answer)->
 		 %%     furtherInstantiatePlan(Intention,NewValuation);
 		
 		 #event{type = EventType} when EventType == ?ADDTESTGOAL->
-		     %% test goal events are generated when a test goal
-		     %% cannot be matched straightaway (instead of generating
-		     %% a plan failure).
+		     %%io:format("Finished test goal ~n"),
+		     %% test goal events are generated when a test
+		     %% goal cannot be matched straightaway (instead
+		     %% of generating a plan failure).
 		     [Answer#event{relatedIntention=Intention}];%
+
+		 #event{type = EventType} when EventType == ?ADDWAITTESTGOAL->
+		     %% wait test goal events are generated when a
+		     %% wait test goal cannot be matched
+		     %% straightaway. They will be retried.
+		     [Answer#event{relatedIntention=Intention}];%
+
 
 		 #event{type = ?ADDACHGOAL,
 			corrected_bindings = CorrectedBindings}->
@@ -860,6 +948,9 @@ processAnswer(Intention,Answer)->
 		     [#piPlan{event = Event}|Rest] = Intention,
 		     FEvent = make_failure_event(Event#event{
 						   relatedIntention = Rest}),
+		     
+		      %% io:format("[RC] FailureEvent: ~p~n",
+		      %% 	       [FEvent]),
 		     [FEvent];  			 
 		     		      
 		 _ ->
@@ -910,14 +1001,14 @@ applyChanges( #agentRationale{events = Events,
 		   #event{type = ?ADDBELIEF, body = Body} ->
 		       %%     io:format("Body: ~p~n",[Body]),
 		       Belief = Body,%%utils:vars_to_bindings(Body),
-		       %% io:format("Adding Belief: ~p from \nBody: ~p~n",
-		       %% 		 [Belief,Body]),
+		         %io:format(" [RC] Adding Belief: ~p~n",
+			 %	  [Belief]),
 		       case belief_base:add(Belief,BB) of
 			   {ok,no_change}->
 			       %% io:format("NO CHANGE~n"),
 			       Agent; %% No change
 			   {ok,NewBB, AddedBelief}->
-			       %%   io:format("NewBB: ~p~n",[NewBB]),
+			  %        io:format("NewBB: ~p~n",[NewBB]),
 			       %%       {Name,Args,Annot} = Belief,
 			       NewEvent =  #event{type=?ADDBELIEF, 
 						  body = AddedBelief},
@@ -941,7 +1032,9 @@ applyChanges( #agentRationale{events = Events,
 
 		   #event{type = ?REMOVEBELIEF, body = Body} ->
 		       Belief = Body,
-
+		       %% io:format(" [RC] Removing Belief: ~p~n",
+		       %% 		 [Belief]),
+		     
 		       case belief_base:remove(Belief,BB) of
 			   {ok, no_change}->
 			       Agent;
@@ -960,7 +1053,7 @@ applyChanges( #agentRationale{events = Events,
 %%% New belief events have appeared since the last attempt to match the
 %%% retried events. Therefore, they are added to the list of events 
 			      
-			       %io:format("[RC]Retrying evens: ~p~n",[RetriedEvents]),
+			       %io:format("[RC]Retrying events: ~p~n",[RetriedEvents]),
 			       NewEventSet =
 				   lists:append([NewEvents,Events,
 						 RetriedEvents]),
@@ -998,62 +1091,12 @@ applyChanges( #agentRationale{events = Events,
 		   
 		       
 
-				   
-%% 			       {ok, no_change}->
-%% 				   {Agent,BB};
-%% 			       {ok, NewBB,RemovedBeliefs} ->
-%% 				   %% Fun that generates new events for the
-%% 				   %% beliefs erased
-%% 				   NewEventsFun =
-%% 				       fun (RemovedBelief) ->
-%% 					       #event{type=?REMOVEBELIEF, 
-%% 						      body = RemovedBelief}
-%% 				       end,
+		   %% Turn the type into a simple achievement goal
+		   #event{type = ?ADDINTENTIONGOAL} ->
+		       Agent#agentRationale{
+			 events = 
+			     [Change#event{type = ?ADDACHGOAL}|Events]};
 
-%% 				   NewEvents = lists:apply(NewEventsFun,
-%% 							   RemovedBeliefs),
-
-
-%% %%% New belief events  have appeared since the last attempt to match the
-%% %%% retried events. Therefore, they are added to the list of events 
-%% 				   NewEventSet =
-%% 				       lists:append([NewEvents,Events,
-%% 						     RetriedEvents]),
-				   
-%% 				   {Agent#agentRationale{belief_base = NewBB,
-%% 							 events = NewEventSet,
-%% 							 retried_events =[]},
-%% 				    NewBB}
-%% 			   end,
-
-%% 		       io:format("RC Removed ~p \nfrom ~p~n",[Belief,BB]),
-%% 		       io:format("RC useBB: ~p~n",[UseBeliefBase]),
-
-%% 		       case belief_base:add(Belief,UseBeliefBase) of
-%% 			   {ok,FinalBB,AddedBelief} when is_list(FinalBB)->
-%% 			       %% io:format("NewBB: ~p~n",[NewBB]),
-%% 			       NewEvent =  #event{type=?ADDBELIEF, 
-%% 						  body = AddedBelief},
-
-
-       
-%% %%% New belief events have appeared since the last attempt to match the
-%% %%% retried events. Therefore, they are added to the list of events 
-%% 			       NewNewEventSet =
-%% 				   [NewEvent| 
-%% 				    UseAgent#agentRationale.events]++
-%% 				   UseAgent#agentRationale.retried_events,
-			       
-%% 			       UseAgent#agentRationale{belief_base = FinalBB,
-%% 						       events = NewNewEventSet,
-%% 						       retried_events = []};   
- 
-%% 			   Other ->
-%% 			       io:format("Other: ~p~n",[Other]),
-%% 			       io:format("RC Error: the matching beliefs should have been removed first\n"),
-%% 			       %% timer:sleep(5000),
-%% 			       UseAgent
-%% 		       end;
 		   #event{}->
 		       %% io:format("AddACHGoal: ~p~n",[Change]),
 		       %%#event{type = ?ADDACHGOAL}->       
@@ -1061,6 +1104,7 @@ applyChanges( #agentRationale{events = Events,
 
 		   ?NOEVENT -> %% This may happen when no failure event can be
 		               %% generated after calling an external action
+		       %% Also, some such events are used as placeholders
 		       Agent;
 		   
 		   {suspend,Intention, ID}->
@@ -1101,8 +1145,8 @@ selectEvent([Event|Events]) ->
  
 
 
-%% Default option selection function.
-%% It returns the first applicable plan computed.
+%% Default option selection function.  It returns the first applicable
+%% plan computed or [] if there are none
 selectPlan([])->
     [];
 selectPlan(ItPlans) ->
@@ -1111,7 +1155,7 @@ selectPlan(ItPlans) ->
 	false ->
 	    [];
 	Plan -> 
-	    %%io:format("PLAN SELECT: ~p~n",[Plan]),
+	    %%io:format("PLAN SELECTED: ~p~n",[Plan]),
 	    Plan
     end.
 	    
@@ -1153,16 +1197,39 @@ check_mailbox(Agent=#agentRationale{})->
     NewAgent.
 
 
+%% Only invoked when there are no intentions and no events
+%% Then, the agent will wait on a "receive"
+check_mailbox_or_wait(Agent=#agentRationale{})->
+    NewAgent =
+	receive 
+	    {signal, Signal} -> 
+		%% First process signals (ping, unblock)
+		processSignal(Signal),
+		Agent;
+	    Message->
+		processMessage(Agent,Message)
+	end,
+    %NewAgent = Agent#agentRationale{events = Ev++NewEvents},
+    %io:format("NewAgent: ~p~n",[NewAgent]), 
+    NewAgent.
+
 %% Only processes messages from ?DM and ?SM
 check_mailbox_critical_section(Agent= #agentRationale{}) ->
-    receive
-	Message = {?DM,_} ->
-	    processMessage(Agent,Message);
-	Message = {?SM,_} ->
-	    processMessage(Agent,Message)
-    after
-	0 ->
+    receive 
+	{signal, Signal} -> 
+	    %% First process signals (ping, unblock)
+	    processSignal(Signal),
 	    Agent
+    after 0 ->
+	    receive
+		Message = {?DM,_} ->
+		    processMessage(Agent,Message);
+		Message = {?SM,_} ->
+		    processMessage(Agent,Message)
+	    after
+		0 ->
+		    Agent
+	    end
     end.
 
 	
@@ -1173,8 +1240,9 @@ check_mailbox_critical_section(Agent= #agentRationale{}) ->
 
 gatherOneMessage() -> 
     receive 
-	{signal, _Signal} -> 
-%	    processSignal(Signal),
+	{signal, Signal} -> 
+	    %% First process signals (ping, unblock)
+	    processSignal(Signal),
 	    gatherOneMessage()
     
     after 0 ->
@@ -1186,8 +1254,12 @@ gatherOneMessage() ->
 	    end
     end.
 
-%processSignal(_Signal) ->
-%    ok.
+
+processSignal({ping, Pid}) ->
+    Pid ! pong;  %% A ping policy is in place
+processSignal(?UNBLOCK) ->
+    ok.%% Process already unblocked
+
 
 %processMessage(Agent,BB,List)->
 %    processMessages(Agent,BB,List,[]).
@@ -1202,16 +1274,20 @@ processMessage(Agent = #agentRationale{events = Events,
 				       agent_name = AName,
 				       suspended = Suspended},Message)->
     %% case Message of
-   %% 	[]->
-   %% 	    ok;
-   %% 	_ ->
-   %% 	    io:format("\n[~p] at ~p receives Message:\n  ~p~n",[AName,
-   %% 				         erlang:now(),Message])
-   %% end,
+    %% 	[]->
+    %% 	    ok;
+    %% 	_ ->
+    %% io:format("\n[~p ~p] at ~p receives Message:\n  ~p~n",[AName, self(),
+    %%  				         erlang:timestamp(),Message]),
+    %% end,
 
     NewAgent = 
 	case Message of
-	
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% EMPTY MAILBOX
+	    [] ->
+		Agent;
+	    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% RESPONSES FROM DM
 
@@ -1250,6 +1326,9 @@ processMessage(Agent = #agentRationale{events = Events,
 			
 			io:format("[RC] No suspended action with id: ~p~n",
 				  [{?SM,ID}]),
+			io:format("[RC] Response: ~p~n",
+				  [Response]),
+			
 			Agent
 		end;
 		    
@@ -1421,15 +1500,12 @@ processMessage(Agent = #agentRationale{events = Events,
 		    {terminate,kill} ->
 			Agent#agentRationale{events = [Message|Events]};
 		    {terminate,kill,_TestPid} ->
-			Agent#agentRationale{events = [Message|Events]};
-		    [] ->
-			Agent
+			Agent#agentRationale{events = [Message|Events]}
 		end,
 		
 		NewAgent.
 
 %    processMessages(Agent,BB,List,[NewEvent|Acc]).
-
 
 
      %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1524,20 +1600,60 @@ process_dm_response(Agent,    %%%%%%%%%%%%% SUSPENDED DISCONNECT
 process_dm_response(Agent,    %%%%%%%%%%%%% SUSPENDED CREATEAGENT
 		    #create_agent_response{
 		      result = Result},
-		    {#suspended_create_agent{ agent_name = AgentName},
+		    {#suspended_create_agent{ agent_name = AgentName,
+					      anonymousVar = AnonymVar,
+					      use_bindings = UseBindings},
 		     SuspendedIntention})->
     
     case Result of 
 	?CREATED ->
 	    %% io:format("[RC DEBUG:] Agent ~p created.~n",[AgentName]),
 
-	    Change = furtherInstantiatePlan(SuspendedIntention),
-	    applyChanges(Agent,
-			 Change);
+	    case AnonymVar of
+		"" ->
+		    Change = furtherInstantiatePlan(SuspendedIntention),
+		    applyChanges(Agent,
+				 Change);
+		
+		#var{} ->
+		    %% ANONYMOUS agent creation
+		    ResultVar =
+			#var{functor = AgentName,
+			     id = AgentName,
+			     args = ?ISATOM,
+			     annots = []},
+		    
+		    Bindings =
+			orddict:store(
+			  AgentName,
+			  ResultVar,
+			  UseBindings),
+		    
+		    
+		    case variables:match_vars(Bindings,
+					      AnonymVar,ResultVar) of
+			false ->
+			    FEvent = 
+				findNextFailureEvent(
+				  #event{relatedIntention = SuspendedIntention}),
+			    NewAgent = applyChanges(Agent,[FEvent]),
+			    NewAgent;
+			ItNewBindings ->
+			    %% Replace bindings in
+			    %% suspended intention
+			    Changes = processAnswer(SuspendedIntention,
+						    {replace_bindings,ItNewBindings}),
+			    
+			    applyChanges(Agent, Changes)
+		    end
+	    end;
+
 	_-> %%?NAMECLASH,?NOCONTAINER,?NOCODE 
 	    
+	    
 	    io:format("[RC DEBUG:] Agent ~p not created.~n"++
-		      "         Reason: ~p~n",[AgentName,Result]),
+		      "            Reason: ~p~n",[AgentName,Result]),
+
 
 	    FEvent = 
 		findNextFailureEvent(
@@ -1633,21 +1749,28 @@ process_dm_response(Agent,    %%%%%%%%%%%%% SUSPENDED FINDCONTAINER
     end;
 
 process_dm_response(Agent,    %%%%%%%%%%%%% SUSPENDED Get Containers
-		    #get_info_response{ containers= Containers},
+		    #get_info_response{ containers= ReceivedContainers},
 		    {#suspended_get_containers{ containers_var = ContainersVar,
 						use_bindings = UseBindings},
 		     SuspendedIntention = [PIP|Rest]})->
 
-    ResultVar =
+
+    %% Transform the list of containers into a variable
+    ReceivedContainersVar =
+	variables:erl_to_ejason(ReceivedContainers),
 	%%TODO [term()] -> #var function is needed
 	function_is_needed,
 
-    Bindings =
-	orddict:store(
-	  ResultVar#var.id,
-	  ResultVar,
-	  UseBindings),
+    %% io:format("[RC] Suspended get Containers. Containers received: ~p~n",
+    %% 	      [ReceivedContainersVar]),
+    
+    NewVariables =
+	variables:vars_to_import(ReceivedContainersVar),
 
+    Bindings = variables:update(UseBindings, NewVariables),
+    
+    ResultVar =
+	variables:get_var(ReceivedContainersVar#var.id, Bindings),
 
     case variables:match_vars(Bindings,ResultVar,ContainersVar) of
 	false ->
@@ -1664,6 +1787,8 @@ process_dm_response(Agent,    %%%%%%%%%%%%% SUSPENDED Get Containers
 	    
 	    applyChanges(Agent, Changes)
     end;
+
+
 
 process_dm_response(Agent, Response ,
 		    {SuspendedAction,
@@ -1696,37 +1821,46 @@ process_dm_response(Agent, Response ,
 %%       if further steps required: update suspended info
 %% 
 %% Return: updated #agentRationale
-
+%%
 %% TODO-> modify the return values to allow their inclusion in 
 %%        plan contexts/ rules
 
 
 
 %% The monitor was created. It is assessed whether the monitored
-%% agent exists (generates an unknown_agent notification)
+%% agent exists (generates an unknown_agent or agent_up notification) or
+%% an existing relation is just updated
+process_sm_response(Agent, #monitor_response{
+			      result = ?UPDATED},
+		    {#suspended_monitor{}, SuspendedIntention})->
+    %% A monitoring relation was updated
+    Change = furtherInstantiatePlan(SuspendedIntention),
+    NewAgent = applyChanges(Agent, Change);
 process_sm_response(Agent, #monitor_response{
 			      monitored_agent = Monitored,
+			      persistence = Persists,
 			      result = Result},
 		    {#suspended_monitor{}, SuspendedIntention})->
-
+    
     Change = furtherInstantiatePlan(SuspendedIntention),
     NewAgent = applyChanges(Agent, Change),
     
-    case Result of
-	%% Unknown_agent notification!
-	?NOAGENT ->
-	    
-	    UnknownAgentNotification=
-		#monitor_notification{
-		   prior_notification = ?NOPRIORNOTIFICATION,
-		   monitored_agent = Monitored,
-		   notification = ?UNKNOWN},
-	    process_monitor_notification(NewAgent,
-					 UnknownAgentNotification);
-	?EJASONOK ->
-	    
-	    NewAgent
-    end;
+    Notification =
+	#monitor_notification{
+	   id = "RCMADENOTIFICATION"++variables:make_timestamp_string(),
+	   prior_notification = ?NOPRIORNOTIFICATION,
+	   monitored_agent = Monitored,
+	   persists = Persists,
+	   notification = 
+	       case Result of
+		   ?NOAGENT ->
+		       ?UNKNOWN;
+		   ?EJASONOK ->
+		       ?CREATEDNOTIFICATION
+	       end},
+    process_monitor_notification(NewAgent,
+				 Notification);
+
 			   
 process_sm_response(Agent,    %%%%%%%%%%%%% SUSPENDED KILLAGENT
 		    #kill_agent_response{result = _Result},
@@ -1736,8 +1870,112 @@ process_sm_response(Agent,    %%%%%%%%%%%%% SUSPENDED KILLAGENT
     Change = furtherInstantiatePlan(SuspendedIntention),
     NewAgent = applyChanges(Agent, Change),
     NewAgent;   
-			   
 
+process_sm_response(Agent,    %%%%%%%%%%%%% SUSPENDED DEMONITOR
+		    
+		    #demonitor_response{result = ?EJASONOK,
+					prior_notification = PriorNotification},
+		    {#suspended_demonitor{monitored_agent=Monitored},
+		     SuspendedIntention})->
+    %% All agent_up(Monitored) and agent_down(Monitored)[reason(PN)]
+    %% must be erased
+
+
+    %% TODO: automatise all these transformations
+    AgentChange =
+	case PriorNotification of
+	    ?CREATEDNOTIFICATION ->
+		variables:erl_to_ejason(agent_up);
+	    _ ->
+		variables:erl_to_ejason(agent_down)
+	end,
+    
+    MonitoredVar = variables:erl_to_ejason(Monitored),
+    ReasonVar = variables:erl_to_ejason(reason),
+    TimeStamp = variables:make_timestamp_string(),
+    PriorVar = variables:erl_to_ejason(PriorNotification),
+    PerceptVar = variables:erl_to_ejason(percept),
+    SourceVar = variables:erl_to_ejason(source),
+    SourcePercept = 
+	#var{id = list_to_atom("Source"++TimeStamp),
+	 functor = {source},
+	 args = {{percept}},
+	 annots = []},   
+    
+     
+    DeletedStruct =
+	case PriorNotification of
+	    ?CREATEDNOTIFICATION ->
+		%% agent_up(monitored)
+		#var{id = list_to_atom("PriorAgentUp"++TimeStamp),
+		     functor={agent_up},
+		     args={{MonitoredVar#var.id}},
+		     annots = []};
+	    _ ->
+		%% reason(Prior)
+		#var{id = list_to_atom("PriorDownReason"++TimeStamp),
+		     functor = {reason},
+		     args = {{PriorVar#var.id}},
+		     annots = []}
+	end,
+    
+    RemovedBelief =
+	case  PriorNotification of
+	    ?CREATEDNOTIFICATION ->
+		%% agent_up(Monitored)[source(percept)]
+		#var{id = list_to_atom("RemoveMonitorBelief"++TimeStamp),
+		     functor = {AgentChange#var.id},
+		     args = {{MonitoredVar#var.id}},
+		     annots = [{SourcePercept#var.id}]};
+	    _ ->
+		%% agent_down(Monitored)[reason(PriorNotif), source(percept)]
+		#var{id = list_to_atom("RemoveMonitorBelief"++TimeStamp),
+		     functor = {AgentChange#var.id},
+		     args = {{MonitoredVar#var.id}},
+		     annots = [{DeletedStruct#var.id}, {SourcePercept#var.id}]}
+	end,
+
+    NewVars =
+	[RemovedBelief, MonitoredVar, ReasonVar, PriorVar, PerceptVar,
+	 SourceVar, SourcePercept, DeletedStruct, AgentChange],
+    
+    
+    Bindings =
+	variables:update(orddict:new(),
+			 NewVars),
+    
+    RemoveBeliefEvent =
+       	utils:remove_belief(Bindings, RemovedBelief),
+
+
+    
+    Changes = furtherInstantiatePlan(SuspendedIntention),
+    NewAgent = applyChanges(Agent, [RemoveBeliefEvent|Changes]),
+    NewAgent; 
+
+
+process_sm_response(Agent,    %%%%%%%%%%%%% SUSPENDED SUPERVISE AGENTS
+		    #supervision_response{result = Result},
+		    {#suspended_supervise{},
+		     SuspendedIntention})->
+ 
+    case Result of 
+	?EJASONERROR ->
+	    %% Supervision relation not created, the execution fails
+	    FEvent = 
+		findNextFailureEvent(
+		  #event{relatedIntention = SuspendedIntention}),
+	    NewAgent = applyChanges(
+			 Agent,
+			 [FEvent]),
+	    NewAgent;
+    
+	?EJASONOK ->
+	    Change = furtherInstantiatePlan(SuspendedIntention),
+	    applyChanges(Agent,
+			 Change)		 
+    
+    end; 
 
 process_sm_response(Agent, Response ,
 		    {SuspendedAction,
@@ -1751,112 +1989,75 @@ process_sm_response(Agent, Response ,
 
 
 
-
-
-
-
-
-
-
 %% MONITOR NOTIFICATIONS (unknown, unreachable, restart, revive, dead, created)
 %% Deletes the prior notification (if any) and generates the new one. This way,
 %% a monitoring agent does not believe a monitored agent to be simultaneously 
 %% dead/unreachable... (at least labeled source(percept) )
     
 process_monitor_notification(
-  Agent,#monitor_notification{
-	   monitored_agent = Monitored,
-	   prior_notification = Prior,
-	   notification = Notification})->
+  Agent, #monitor_notification{
+	    id = NotificationID,
+	    monitored_agent = Monitored,
+	    prior_notification = Prior,
+	    notification = Notification,
+	    persists = RelationPersists})->
     
     TimeStamp =variables:make_timestamp_string(),
-
-    %% io:format("[RC ~p] Notification received: ~p~n",
-    %% 	      [Agent#agentRationale.agent_name, Notification]),
     
-					     
+    %% io:format("[RC ~p] Notification ~p received: ~p~n Monitored: ~p "++
+    %% 		   "Prior: ~p~n Persists: ~p~n",
+    %% 	       [Agent#agentRationale.agent_name, NotificationID,Notification,
+    %% 	       Monitored, Prior, RelationPersists]),
+    
+				     
 
-    %% Construct the struct agent_down(Monitored)[reason(Notification), source(percept)]
+    %% Construct the struct agent_down(Monitored)[reason(Notification),
+    %% source(percept)]
     %% or agent_up(Monitored)[source(percept)]
 
 
     %% TODO: try to create just one variable manually and then automate the variable extraction
-    AgentDown = #var{
-      id = agent_down,
-      functor = agent_down,
-      args = ?ISATOM,
-      annots = []},
+    AgentDown = variables:erl_to_ejason(agent_down),
 
-    AgentUp = #var{
-      id = agent_up,
-      functor = agent_up,
-      args = ?ISATOM,
-      annots = []},
+    AgentUp = variables:erl_to_ejason(agent_up),
 
-    AgentVar =
-	#var{
-      id = Monitored,
-      functor = Monitored,
-      args = ?ISATOM,
-      annots = []},
+    AgentVar = variables:erl_to_ejason(Monitored),
 
-    ReasonVar = #var{
-      id = reason,
-      functor = reason,
-      args = ?ISATOM,
-      annots = []},
+    ReasonVar = variables:erl_to_ejason(reason),
 
-    NotificationVar =
-	#var{
-      id = Notification,
-      functor = Notification,
-      args = ?ISATOM,
-      annots = []},
+    NotificationVar = variables:erl_to_ejason(Notification),
 
-    SourceVar =
-	#var{ id = source,
-	      functor = source,
-	      args = ?ISATOM,
-	      annots = []},
+    SourceVar = variables:erl_to_ejason(source),
     
-    PerceptVar =
-	#var{ id = percept,
-	      functor = percept,
-	      args = ?ISATOM,
-	      annots = []},
-    
+    PerceptVar = variables:erl_to_ejason(percept),
+
     SourcePercept =
-    	#var{id = "Source"++TimeStamp,
+    	#var{id = list_to_atom("Source"++TimeStamp),
     	     functor = {source},
     	     args = {{percept}},
     	     annots = []},   
 
-    PriorVar =
-	#var{
-      id = Prior,
-      functor = Prior,
-      args = ?ISATOM,
-      annots = []},
+    PriorVar = variables:erl_to_ejason(Prior),
 
     ReasonStruct =
-	#var{id = "DownReason"++TimeStamp,
+	#var{id = list_to_atom("DownReason"++TimeStamp),
 	     functor = {reason},
 	     args = {{NotificationVar#var.id}},
 	     annots = []},
-
+    
    
     %% Prior notification to be deleted
     PriorStruct =
 	case Prior of
 	    ?CREATEDNOTIFICATION ->
 		%% agent_up(monitored)
-		#var{id = "PriorAgentUp"++TimeStamp,
+		#var{id = list_to_atom("PriorAgentUp"++TimeStamp),
 		     functor={agent_up},
 		     args={{AgentVar#var.id}},
 		     annots = []};
 	    _ ->
 		%% reason(Prior)
-		#var{id = "PriorDownReason"++TimeStamp,
+		#var{id = list_to_atom("PriorDownReason"++TimeStamp),
 		     functor = {reason},
 		     args = {{PriorVar#var.id}},
 		     annots = []}
@@ -1869,13 +2070,14 @@ process_monitor_notification(
 	case  Prior of
 	    ?CREATEDNOTIFICATION ->
 		%% agent_up(Monitored)[source(percept)]
-		#var{id = "RemoveMonitorBelief"++TimeStamp,
+		#var{id = list_to_atom("RemoveMonitorBelief"++TimeStamp),
 		     functor = {AgentUp#var.id},
 		     args = {{AgentVar#var.id}},
 		     annots = [{SourcePercept#var.id}]};
 	    
 	    _ ->
-		#var{id = "RemoveMonitorBelief"++TimeStamp,
+		%% agent_down(Monitored)[reason(Prior), source(percept)]
+		#var{id = list_to_atom("RemoveMonitorBelief"++TimeStamp),
 		     functor = {AgentDown#var.id},
 		     args = {{AgentVar#var.id}},
 		     annots = [{PriorStruct#var.id}, {SourcePercept#var.id}]}
@@ -1887,29 +2089,52 @@ process_monitor_notification(
     NewBelief =
 	case Notification of
 	    ?CREATEDNOTIFICATION ->
-		#var{ id = "NewMonitorBelief"++TimeStamp,
+		#var{ id = list_to_atom("NewMonitorBelief"++TimeStamp),
 		      functor = {AgentUp#var.id},
 		      args ={{AgentVar#var.id}},
 		      annots = []};
-	    _ ->
-	       
-		#var{id = "DownBelief"++TimeStamp,
+	    _ ->      
+		#var{id = list_to_atom("DownBelief"++TimeStamp),
 		     functor = {AgentDown#var.id},
 		     args = {{AgentVar#var.id}},
 		     annots = [{ReasonStruct#var.id}]}
 	end,
 
+
+
+    DemonitorBelief =
+	NewBelief#var{
+	  id = list_to_atom("DemonitorBelief"++TimeStamp),
+	  annots =
+	      [{SourcePercept#var.id}|NewBelief#var.annots]
+	 },
+    
+    
+
+   %% If monitor persists, do not add demonitorbelief
+
+    Vars = [NewBelief,RemovedBelief,ReasonStruct, PriorStruct, PriorVar,
+	    SourceVar, PerceptVar, SourcePercept, NotificationVar,
+	    AgentDown,AgentUp, AgentVar,ReasonVar],
+    
+    NewVars = case RelationPersists of 
+		  true ->
+		      Vars;
+		  false ->
+		      [DemonitorBelief|Vars]
+	      end,
+		
     Bindings =
 	variables:update(orddict:new(),
-			 [NewBelief,RemovedBelief,ReasonStruct, PriorStruct, PriorVar,
-			  SourceVar, PerceptVar, SourcePercept, NotificationVar,
-			  AgentDown,AgentUp, AgentVar,ReasonVar]),
+			 NewVars),
 
-    %% Add new belief, but delete whatever other "agent_down(Monitored)" there existed! So that a monitoring agent does not believe another thing.
+
+    %% Add new belief, but delete whatever other
+    %% "agent_down(Monitored)" there existed! So that a monitoring
+    %% agent does not believe another thing.
 
     %% io:format("[RC ~p] Prior Notification: ~p~n",
     %% 	      [Agent#agentRationale.agent_name,  Prior]),
-
     
 
     RemoveBeliefEvent =
@@ -1921,9 +2146,30 @@ process_monitor_notification(
 	end,
 
     %% Monitoring notifications get appended the label [source(percept)]
-    AddBeliefEvent = utils:add_belief(Bindings, NewBelief, TimeStamp, percept),
+    AddBeliefEvent = 
+	utils:add_belief(Bindings, NewBelief, TimeStamp, percept),
+
+
+    %% If the monitoring relation does not persist, then erase the 
+    %% new belief added (however, a notification will still be received)
+
+    DemonitorBeliefEvent =
+       	utils:remove_belief(Bindings, DemonitorBelief),
+
+
+  
+
+
     %% io:format("[RC] AddBeliefEvent: ~p~n",[AddBeliefEvent]),
 
+
+    Events = case RelationPersists of
+		 true ->
+		     [RemoveBeliefEvent, AddBeliefEvent];
+		 false ->
+		     [RemoveBeliefEvent, AddBeliefEvent, DemonitorBeliefEvent]
+	     end,
+    			 
 
     %% io:format("[RC ~p] Removing Belief: ~p~n",
     %% 	      [Agent#agentRationale.agent_name, 
@@ -1936,12 +2182,8 @@ process_monitor_notification(
     %% io:format("[RC ~p] Add Belief Event: ~p~n",
     %% 	      [Agent#agentRationale.agent_name, 
     %% 	       AddBeliefEvent]),
-
-
-    applyChanges(Agent,[RemoveBeliefEvent,AddBeliefEvent]).
-
-
-
+   
+    applyChanges(Agent,Events).
 
 
 
@@ -1959,11 +2201,13 @@ process_monitor_notification(
 make_failure_event(Event = #event{type=Type})->
 %% io:format("MakeFailEvent: Event: ~p~n",[Event]),
     case Type of
-	?FAILEDACHGOAL ->
-	    Event;
-	?FAILEDTESTGOAL->
-	    Event;
+	%% ?FAILEDACHGOAL ->
+	%%     Event;
+	%% ?FAILEDTESTGOAL->
+	%%     Event;
 	?ADDACHGOAL ->
+	    Event#event{type= ?FAILEDACHGOAL};
+	?ADDINTENTIONGOAL ->
 	    Event#event{type= ?FAILEDACHGOAL};
 	?ADDTESTGOAL ->
 	    Event#event{type= ?FAILEDTESTGOAL};
@@ -1978,11 +2222,11 @@ make_failure_event(Event = #event{type=Type})->
     end.
 
 
-%% Identifies the intended means (plan) for the chosen event
-%% It changes the event if a failure plan is detected.
-findIntendedMeans(_NewAgent,Event = [],_Plans,_OptionSelector) ->
-    {Event,[]};
-findIntendedMeans(NewAgent,Event,Plans,OptionSelector) ->
+%% Identifies the intended means (plan) for the chosen event.
+%% 
+findIntendedMeans(_AgentInfo,Event = [],_Plans,_OptionSelector) ->
+    [];
+findIntendedMeans(AgentInfo,Event,Plans,OptionSelector) ->
     IntendedMeans =
 	case Event of 
 	    {terminate,kill}->
@@ -1992,23 +2236,54 @@ findIntendedMeans(NewAgent,Event,Plans,OptionSelector) ->
 	    _ ->
 		%%io:format("Finding IntendedMeans~n"),
 		ItApplicablePlans =
-		    findApplicablePlans(NewAgent,Event,Plans),
+		    findApplicablePlans(AgentInfo,Event,Plans),
 		%io:format("~n~nALL APPLICAPLANS: ~p~n~n~n",
 		%	  [iterator:get_all(ItApplicablePlans)]),
 		OptionSelector(ItApplicablePlans)
 	end,
 
-    %io:format("IntendedMeans: ~p~n~n~n~n",[IntendedMeans]),
-    case IntendedMeans of
-	%% []->
-	%%     FailureEvent = make_failure_event(Event),
-	%%     %% io:format("FailureEvent: ~p~n",[FailureEvent]),
-	%%     %%  exit(err),
-	%%     %% If IntendedMeans is empty, look for a failure plan
-	%%     findFailureIntendedMeans(NewAgent,FailureEvent,
-	%% 			     Plans,OptionSelector);
-	_ ->% Intended Means (plan) found. Event remains unchanged
-	    {Event,IntendedMeans}
+    %% io:format("IntendedMeans: ~p~n~n~n~n",[IntendedMeans]),
+    case {Event, IntendedMeans} of
+	{Event = #event{
+		    %% This event must be retried. 
+		    type = ?ADDWAITTESTGOAL,
+		    body = Query,
+		    relatedIntention = [CurrentPiPlan|Rest]
+		   },
+	 []}->
+	    %% Will again execute the formula ??Query  
+	    Valuation  =
+	    	(CurrentPiPlan#piPlan.valuation),
+	    %% io:format("[RC findIntended] The current Valuation: ~p~n",
+	    %% 	      [Valuation]),
+
+	    case actions:wait_test_goal(AgentInfo, Valuation, Query) of
+		#event{} ->
+		    %% The query cannot be matched from the BB, it will be
+		    %% retried in the future
+		    [];
+		{replace_bindings, ItBindings} ->	    
+		    NewValuation = iterator:first(ItBindings),
+		    %% io:format("[RC findIntended] The new Valuation: ~p~n",
+		    %% 	      [NewValuation]),
+			      	      
+		    NewIntention = 
+			[CurrentPiPlan#piPlan{valuation =
+						  NewValuation}|Rest],
+		    case furtherInstantiatePlan(NewIntention) of
+			[{deleteIntention, []}] ->
+			    %% The intention was completely executed. Event
+			    %% replaced to just drop the intention.
+			    [];
+			[{addIntention, UseIntention}] ->
+			    %% The query was matched, then add the resulting
+			    %% intention
+			    {?ADDINTENTION,
+			     UseIntention}
+		    end
+	    end;
+	_ ->%Intended Means (plan) found. 
+	    IntendedMeans
     end.
 
 
@@ -2043,7 +2318,7 @@ findIntendedMeans(NewAgent,Event,Plans,OptionSelector) ->
 
 
 % Generates the proper failure event from the intention stack
-% Only plans for goal addition may have failure plans
+% Only plans for goal addition (test and achievement) may have failure plans
 findNextFailureEvent(_Event =  #event{relatedIntention = []})->
     %% No upper-level failure plan can be generated. 
     %%The intention will be dropped
@@ -2077,5 +2352,3 @@ findNextFailureEvent(#event{relatedIntention =
     	_ -> % cannot fail, try with next
     	    findNextFailureEvent(#event{relatedIntention = Rest})
     end.
-
-    
