@@ -43,16 +43,19 @@ of eJason. By default, the folders "ebin", "include" and "agents"
 belong to it. Additional directories Dir1... DirN can be added via the
 parameter "-pa Dir1 ... DirN" to the ejason script.
 
-To compile and load the Jason code of an agent, the following command
+To parse and compile the eJason code of an agent, the following command
 must be run:
 
-> ejason:build(agentName).
+> ejason:parse(agentName).
+> ejason:compile(agentName).
 
 To run this agent, type:
 
-> ejason:run("agentName").
+> ejason:run(agentName).
 
-Note that, for convenience, the latter is a string.
+For simplicity, the three commands above can be consecutively run as:
+
+> ejason:crun(agentName).
 
 
 For instance, to run the "counter" agent within the tests provided the 
@@ -60,11 +63,13 @@ following sequence of commands suffices:
 
 ./ejason -c container1
 
-> ejason:build(counter).
-
-> ejason:run("counter").
+> ejason:crun(counter).
 
 
+Similarly, several agents (10 in this sample) can be started with the 
+same code by executing:
+
+> ejason:crun(counter, 10).
 
 This agent will always be alive. If we want to stop it, we must call:
 
@@ -83,9 +88,12 @@ Check the README file for each of the tests, as some may require special
 start parameters or the start of several Erlang nodes
 
 
-****** NOTES ON ONGOING WORK  **************
+****** NOTES ON THE LATEST GENERAL UPDATE  **************
 
-Our implementation of eJason varies the semantics of Jason to include
-a new supervision mechamisn and a new distribution mechanism. A formal
-semantics of these mechanisms is being developed. Besides, an
-informal semantics will soon be available (submitted for review).
+The implementation of eJason now includes the monitoring and
+supervision mechanisms described in the Ph.D. thesis of the developer. 
+
+A formal semantics of these mechanisms is also available in the
+aforementioned work.
+
+(More information will be added after the formal defense).
