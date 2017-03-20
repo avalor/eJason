@@ -226,7 +226,7 @@ crit_sect_body_formulas -> '{{' crit_sect_body_formulas '}}': '$2'.
 body_symbol -> '!':add_achievement_goal.
 body_symbol -> '!!':new_intention_goal.
 body_symbol -> '?':add_test_goal.
-body_symbol -> '??':add_no_wait_test_goal.
+body_symbol -> '??':add_wait_test_goal.
 body_symbol -> '+':add_belief.
 body_symbol -> '-':remove_belief.
 body_symbol -> '-+':remove_add_belief.
@@ -285,11 +285,24 @@ list_of_terms_brackets -> '['']':[].
 term -> rel_term:'$1'.
 term -> string:'$1'.
 
-list -> '[' ']':{list,[],'[]'}.
-list -> '[' term terms list_tail ']':{list,['$2'|'$3'],'$4'}.
+%%% All lists should have shape {list, [Header], [{list,..., '[]'}]} 
 
-list_tail -> '|' list:'$2'.
-list_tail -> '|' var:'$2'.
+list -> '[' ']':{list,[],'[]'}.
+list -> '[' term terms list_tail ']':
+     
+     case '$3' of
+     	  [] ->
+     	     {list,['$2'],'$4'};
+	  _ ->
+	     {list, ['$2'], make_list('$3', '$4')} 
+    end.
+
+     
+%     	     {list,['$2'|'$3'],'$4'}.
+
+
+list_tail -> '|' list:['$2'].
+list_tail -> '|' var:['$2'].
 list_tail -> '$empty':'[]'.
 
 
@@ -391,9 +404,16 @@ arithm_term -> '(' arithm_expr ')':
 	    {parenthesis,'$2'}.
 
 
-
-
 Erlang code.
 
 execute(FunName,Args)->
 	apply(jasonNewParser,FunName,Args).
+
+
+%%% All lists should have shape {list, [Header], [{list,..., '[]'}]} 
+
+make_list([], Tail)->
+	Tail;
+
+make_list([Head|Rest], Tail)->
+	[{list, [Head], make_list(Rest,Tail)}].
