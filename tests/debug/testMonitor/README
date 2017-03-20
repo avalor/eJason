@@ -3,10 +3,10 @@ from different hosts:
 
 ********* Set up:
 
-This scenario presents a basic debugging scenario that test the monitor
+This scenario presents a basic debugging scenario that tests the monitoring
 mechanism of eJason.
 
-Each .asl file described the steps that the agents carry out (mainly showing
+Each .asl file describes the steps that the agents carry out (mainly showing
 how the MAS dynamics trigger the different monitoring notifications to the
 monitoring agent).
 

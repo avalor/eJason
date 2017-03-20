@@ -1,0 +1,33 @@
+To run this example:
+
+********* Set up:
+
+This scenario presents a basic debugging scenario that tests variable
+handling
+
+
+Copy the corresponding ".asl" files into the folder "agents".
+
+*********RUN *****
+
+./ejason -c someName
+
+> ejason:crun(testVars).
+
+> ejason:crun(testVarsMatching)
+
+
+
+*********Results*****
+
+TestVars: Success!
+
+TestVarsMatching: My C is 2 and my X is 12
+
+
+
+
+
+
+
+
