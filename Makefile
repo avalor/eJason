@@ -1,9 +1,4 @@
 all:
-
-	mkdir -p ebin
-
-	mkdir -p agents
-
 	rm -f ebin/actions.beam ebin/belief_base.beam ebin/conditions.beam \
 		ebin/ejason_distribution_manager.beam \
 		ebin/ejason_supervision_manager.beam \
@@ -11,7 +6,7 @@ all:
 		ebin/jasonNewParser.beam \
 		ebin/operations.beam ebin/reasoningCycle.beam \
 		ebin/scanner.beam ebin/test_goal.beam ebin/utils.beam \
-		ebin/variables.beam 
+		ebin/variables.beam ebin/ping_policy_watcher.beam
 
 	erlc -W0 -o ebin ./src/actions.erl ./src/belief_base.erl	\
 		./src/conditions.erl					\
@@ -21,9 +16,8 @@ all:
 		./src/jasonNewParser.erl ./src/operations.erl		\
 		./src/reasoningCycle.erl ./src/scanner.erl		\
 		./src/test_goal.erl ./src/utils.erl			\
-		./src/variables.erl
+		./src/variables.erl ./src/ping_policy_watcher.erl
 
 clean:
-
-	rm -f *.beam
-	rm -f *.erl
+	rm -f agents/*~
+	rm -f src/*~
