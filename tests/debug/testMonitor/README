@@ -1,0 +1,36 @@
+To run this example, use two different command shells, even 
+from different hosts:
+
+********* Set up:
+
+This scenario presents a basic debugging scenario that test the monitor
+mechanism of eJason.
+
+Each .asl file described the steps that the agents carry out (mainly showing
+how the MAS dynamics trigger the different monitoring notifications to the
+monitoring agent).
+
+Update the action ".connect_to(Container)" in killer.asl to the 
+name of the host where the container 'home2' runs 
+(i.e. 'home2@my_host').
+
+Copy the corresponding ".asl" files into the folder "agents".
+
+*********HOST 1*****
+
+./ejason -c home2
+
+
+*********HOST 2*****
+
+./ejason -c home
+
+
+> ejason:crun(testMonitor).
+
+
+
+
+
+
+
