@@ -30,6 +30,8 @@
 -record(suspended_create_agent,
 	{ agent_name = no_agent,
 	  code = no_code,
+	  anonymousVar="", %% #var Only for Anonymous agent creation
+	  use_bindings=[], %% Only for Anonymous agent creation
 	  container = no_container
 	 }).
 
@@ -60,7 +62,22 @@
 	  options = no_options
 	 }).
 
+-record(suspended_demonitor,
+	{ 
+	  monitoring_agent = no_monitoring_agent,
+	  monitored_agent = no_monitored_agent
+	 }).
+
+
 
 -record(suspended_kill_agent,
 	{dying_agent_name = no_dying_agent,
 	 killing_agent_name = no_killing_agent}).
+
+
+-record(suspended_supervise,
+	{ 
+	  supervisor_agent = no_monitoring_agent,
+	  supervised_set = no_monitored_agent,  
+	  supervision_policy = no_supervision_policy
+	}).

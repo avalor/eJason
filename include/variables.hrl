@@ -36,7 +36,7 @@
 	 functor = ?NOFUNCTOR,
 	 args = ?UNBOUND, % If it contains vars, they are represented as {ID}
 	 annots = []
-	 % timestamp = erlang:now(), %% Used to avoid collisions
+	 % timestamp = erlang:timestamp(), %% Used to avoid collisions
 	% bind = ?UNBOUNDVAR,
 	 % is_ground = false,
 	% unbound_vars=[] % only if it is not ground yet	 

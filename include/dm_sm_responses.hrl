@@ -18,3 +18,9 @@
 	 agent_name = no_name,
 	 agent_pid = no_pid,
 	 container = no_container}).
+
+
+-record(start_agent_response, %% From DM to SM due to a restart/revive
+	{id = no_id,
+	 agent_name = no_name,
+	 result = no_result}).

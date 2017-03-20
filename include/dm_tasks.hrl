@@ -8,7 +8,7 @@
 %%      2.2) Find agent
 %%   3) If agent found, sent message
 -record(send_message_task,
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 %% answerTo = answer_to_nobody, 
 	 
 	  agent_name = no_name, 
@@ -33,7 +33,7 @@
 %%   3) If agent found, fail (name clash)
 
 -record(create_agent_task,
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 request = no_request, %% create_agent_request
 	 sm_notified = false, %% notified  in ?DM:create_agent/2 by a start_monitor_request
          sm_response = no_response, %% #start_monitor_response
@@ -45,7 +45,7 @@
 
 
 -record(find_agent_task,
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 answerTo = answer_to_nobody, 
 	 %%only used when is standalone task (not a subtask)  
 	 agent_name = no_name, 
@@ -72,13 +72,19 @@
 
 
 -record(system_connection_initiator_task, %% DMa
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 initiator_agent = no_initiator_agent,
 	 container = no_receiver_container,
 	 agent_list_request = no_agent_list_request,
 	 %% containers that have not sent their agent_name list yet
-	 pending_agent_list_containers = [], 
-	 gathered_agents = orddict:new(),
+	 pending_agent_list_containers = [],
+
+	 %% Must be an dict where the keys are the containers where
+	 %% the agents run. Otherwise, the agent_up notifications
+	 %% should look for the container where each new agent
+	 %% actually runs (additional, redundant effort).
+
+	 gathered_agents = dict:new(),
 
 	 check_agents_request_received = false, %% eventually turned to true
 	 %% Containers that will also be added to the MAS
@@ -91,29 +97,34 @@
 	 
 	 %% Agent names received in a system_connection_response
 	 %% Necessary to send the proper agent_up notifications
-	 agents_in_receiver_mas = orddict:new(),
+	 agents_in_receiver_mas = dict:new(),
 	 parent_task = no_parent, %% only if initiated by a send
 
 	 result = no_result}).
 
 
 -record(system_connection_receiver_task, %% DMb
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 container = no_initiator_container,
 	 agent_list_request = no_agent_list_request,
 	 check_agents_response_received = false, %% eventually turned to true
 
 	 %% containers that have not sent their agent_name list yet
 	 pending_agent_list_containers = [], 
+
+	 %% Must be a dict where the keys are the containers where
+	 %% the agents run. Otherwise, the agent_up notifications
+	 %% should look for the container where each new agent
+	 %% actually runs (additional, redundant effort).
 	
-	 gathered_agents =orddict:new(),
-	 result = no_result, %% the receiver calcultas this reponse
+	 gathered_agents =dict:new(),
+	 result = no_result, %% the receiver calculates this response
 	 %% Agent names received in a check_agents response
 	 agents_in_initiator_mas = []}).	 
 
 
 -record(system_disconnection_task,
-	{id = erlang:now(),
+	{id = erlang:timestamp(),
 	 answerTo = answer_to_nobody, 
 	 container = no_container,
 	 pending_containers = []}).
@@ -137,7 +148,7 @@
 
 %% 	  subtasks_ready = true,
 
-%% 	  updated = erlang:now(),
+%% 	  updated = erlang:timestamp(),
 
 %% 	  request = no_request% Request that started the task 
 %% 	 }).

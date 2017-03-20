@@ -43,7 +43,7 @@
 	 plan = #plan{},
 	 valuation = {},
 	 formulas = [], 
-	 id = erlang:now(), 
+	 id = erlang:timestamp(), 
 	 %% all the piPlans belonging to the same intention share this unique id
 	 init_bindings = []}).% Used to generate event for Plan Failure
 
@@ -51,10 +51,8 @@
 
 
 
-%% -record(formula,
-%% 	{function,
-%% 	 variables}). 
-%% %% This way, we know all variables before executing the formula.
+%% -record(formula, {function, variables}).
+%% This way, we know all variables before executing the formula.
 
 
 						%	 private_belief_base= undefined, % This belief base contains the

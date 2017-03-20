@@ -29,10 +29,13 @@
 
 -define(ADDINTENTIONGOAL,new_intention_goal).
 
+%% Used when a wait_test_goal is matched during the 
+%% intended means computation
+-define(ADDINTENTION,add_this_intention).
+
 -define(ADDTESTGOAL,add_test_goal).
 
--define(ADDNOWAITTESTGOAL,add_no_wait_test_goal).
-
+-define(ADDWAITTESTGOAL,add_wait_test_goal).
 
 -define(FAILEDACHGOAL, failed_achievement_goal).
 
@@ -48,7 +51,7 @@
 
 -define(MBOXNOTCHECKED,false).
 
--define(NOEVENT,false).
+-define(NOEVENT,ejason_no_event).
 
 -define(SPAWNPROCESS,spawn).
 
@@ -70,6 +73,10 @@
 
 -define(EJASONOK,ejason_ok).
 
+-define(UPDATED,ejason_updated).
+
+-define(EJASONERROR, ejason_error).
+
 -define(UNDERSCORE, 'EJASONUNDERSCORE').
 
 -define(DOWN, 'DOWN').
@@ -85,6 +92,9 @@
 
 -define(NOPRIORNOTIFICATION, ejason_no_specified_prior_notification).
 -define(PERSISTANY, ejason_persist_any).
+-define(NOPING, ejason_no_ping).
+
+
 
 %% Used when a monitoring relation exists, but the monitored agent is
 %% unknown or unreachable (and after a dead_agent)
@@ -145,7 +155,13 @@
 
 
 
+%%% Supervision related macros
 
+-define(COMPUTEPOLICY, ejason_compute_supervision_policy). 
+%% Used when an agent death is not related to some supervision policy
+
+-define(UNBLOCK, ejason_unblock). 
+%% Used to stop backtracking on test goals and plan contexts
 
 
 
@@ -153,6 +169,29 @@
 
 
 -define(EXTERNALMONITOR, ejason_external_monitor). 
+
+-define(NOTIFY, true). %% send start_monitor_request on spawn_agent
+
+-define(DONOTNOTIFY, false). %% opposite from above
+
+%-define(ISRESTART, true).
+%-define(ISNOTRESTART, false).
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% General purpose
+
+-define(OUTPUTDIR, "./agents/erlang").
+
+
+
+
+
+
 %% placeholder for a monitoring relation replicated in the monitored container
 
 
